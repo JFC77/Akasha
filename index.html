@@ -942,34 +942,39 @@
           if (isActive && !isCloudLoaded) {
             console.log("Activando persistencia local por timeout");
             const localData = localStorage.getItem('akasha_data');
-            // Solo cargamos local si no hemos recibido nada de la nube aún
             setData(prev => (Object.keys(prev.groups || {}).length === 0) ? (localData ? JSON.parse(localData) : generateSeedData()) : prev);
             setIsCloudLoaded(true);
+            setCloudStatus('Local 🏠');
           }
-        }, 4000);
+        }, 3000);
 
         const startSync = async () => {
           try {
             setCloudStatus('Autenticando...');
-            await auth.signInAnonymously();
-            setCloudStatus('Conectado ☁️');
-            const docRef = db.collection('yoga').doc('main');
-
-            unsubscribe = docRef.onSnapshot((docSnap) => {
-              if (docSnap.exists) {
-                setData(docSnap.data());
-              } else {
-                const seed = generateSeedData();
-                docRef.set(seed);
-                setData(seed);
-              }
-              setIsCloudLoaded(true);
-              clearTimeout(cloudTimeout);
-            }, (error) => {
-              console.warn("Error Firestore:", error.message);
+            auth.signInAnonymously().then(() => {
+              if (!isActive) return;
+              setCloudStatus('Conectado ☁️');
+              const docRef = db.collection('yoga').doc('main');
+              unsubscribe = docRef.onSnapshot((docSnap) => {
+                if (docSnap.exists) {
+                  setData(docSnap.data());
+                } else {
+                  const seed = generateSeedData();
+                  docRef.set(seed);
+                  setData(seed);
+                }
+                setIsCloudLoaded(true);
+                clearTimeout(cloudTimeout);
+              }, (error) => {
+                console.warn("Error Firestore:", error.message);
+                setCloudStatus('Offline 🏠');
+              });
+            }).catch(err => {
+              console.warn("Error Auth:", err.message);
+              setCloudStatus('Error Auth ❌');
             });
           } catch (err) {
-            console.warn("Error Auth:", err.message);
+            console.warn("Error crítico:", err.message);
           }
         };
 
