@@ -539,17 +539,10 @@
                 <LucideIcon name="Shield" className="w-5 h-5 text-sage-600" />
                 <h1 className="font-serif text-lg font-semibold text-sage-800">Panel Admin</h1>
               </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => {
-                  if (confirm('¿Quieres subir el nuevo horario a la nube? Esto borrará las reservas antiguas.')) onResetData();
-                }} className="px-3 py-1.5 bg-indigo-500 text-white text-[10px] font-bold rounded-lg shadow-sm animate-pulse">
-                  Actualizar Nube ☁️
-                </button>
-                <button onClick={onLogout} className="p-2 rounded-xl bg-sage-50 hover:bg-sage-100 text-sage-600 transition-all flex items-center gap-2">
-                  <span className="text-xs font-semibold">Salir</span>
-                  <LucideIcon name="LogOut" className="w-5 h-5" />
-                </button>
-              </div>
+              <button onClick={onLogout} className="p-2 rounded-xl bg-sage-50 hover:bg-sage-100 text-sage-600 transition-all flex items-center gap-2">
+                <span className="text-xs font-semibold">Salir</span>
+                <LucideIcon name="LogOut" className="w-5 h-5" />
+              </button>
             </div>
           </header>
 
@@ -1284,7 +1277,6 @@
       return (
         <>
           <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-3 py-1.5 bg-white/10 backdrop-blur-md rounded-full border border-white/20 text-[10px] text-sage-400 font-medium">
-            <span className="opacity-40">{APP_VERSION}</span>
             <div className={`w-1.5 h-1.5 rounded-full ${cloudStatus.includes('☁️') ? 'bg-indigo-400 animate-pulse' : 'bg-sage-300'}`}></div>
             {cloudStatus}
             <button onClick={forceRefresh} className="ml-2 hover:text-indigo-400 underline underline-offset-2">Actualizar</button>
