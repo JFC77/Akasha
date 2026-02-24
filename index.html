@@ -689,7 +689,15 @@
                 </form>
 
                 <div className="pt-2">
-                  <p className="text-[10px] font-bold text-sage-500 uppercase mb-2">Alumnos Registrados</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[10px] font-bold text-sage-500 uppercase">Alumnos Registrados</p>
+                    <button onClick={() => {
+                      if (confirm('¿Seguro que quieres BORRAR TODOS los alumnos y empezar de cero?')) onResetData();
+                    }} className="text-[10px] font-bold text-red-400 hover:text-red-600 flex items-center gap-1 transition-colors">
+                      <LucideIcon name="Trash2" className="w-3 h-3" />
+                      Borrar lista completa
+                    </button>
+                  </div>
                   <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
                     {Object.values(users)
                       .filter(u => u.phone !== ADMIN_PHONE)
