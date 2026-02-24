@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <meta name="description" content="Akasha — Gestión de clases y reservas de tu escuela de yoga" />
+  <meta name="theme-color" content="#4a6741" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Akasha · Yoga Studio</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap"
+    rel="stylesheet" />
+
+  <!-- Tailwind CSS v3 CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Outfit', 'sans-serif'],
+            serif: ['Playfair Display', 'serif'],
+          },
+          colors: {
+            cream: {
+              50: '#fefcf7', 100: '#fdf8ec', 200: '#f9edd4', 300: '#f3dfb3',
+            },
+            sage: {
+              50: '#f4f7f2', 100: '#e4ebe0', 200: '#c9d7c2', 300: '#a5bb9b',
+              400: '#7d9c70', 500: '#5f8152', 600: '#4a6741', 700: '#3b5234',
+              800: '#32432d', 900: '#2a3826',
+            },
+            sand: {
+              50: '#faf8f5', 100: '#f0eae1', 200: '#e1d5c4', 300: '#cdb9a1', 400: '#b89c7e',
+            },
+            terracotta: {
+              400: '#c4785a', 500: '#b5624b',
+            },
+          },
+          borderRadius: {
+            'zen': '1.5rem',
+          },
+        },
+      },
+    }
+  </script>
+
+  <style>
+    /* ... (CSS styles preserved) */
+    * {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: #f9f6f0;
+      color: #2a3826;
+      min-height: 100dvh;
+      margin: 0;
+    }
+
+    .hide-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .hide-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    @keyframes slide-in {
+      from {
+        opacity: 0;
+        transform: translateY(-12px) scale(0.95);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .animate-slide-in {
+      animation: slide-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root">
+    <div
+      style="height: 100vh; display: flex; align-items: center; justify-content: center; font-family: serif; color: #4a6741; background: #fefcf7;">
+      <div style="text-align: center;">
+        <h2 style="font-size: 1.5rem; margin-bottom: 0.5rem;">Cargando Akasha...</h2>
+        <p style="font-size: 0.8rem; opacity: 0.6;">Namaste 🙏</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts al final para mejor rendimiento -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script src="https://www.gstatic.com/firebasejs/11.3.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.3.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.3.1/firebase-auth-compat.js"></script>
+
+  <script type="text/babel" data-presets="react">
+    // USANDO VERSIONES COMPAT PARA MÁXIMA ESTABILIDAD POR CDN
+    const firebaseConfig = window.__firebaseConfig || {
+      apiKey: "AIzaSyAs-Placeholder-Key", // <--- DEBERÍAS CAMBIAR ESTO POR TU KEY REAL
+      authDomain: "akasha-yoga.firebaseapp.com",
+      projectId: "akasha-yoga",
+      storageBucket: "akasha-yoga.appspot.com",
+      messagingSenderId: "123456789",
+      appId: "1:123456789:web:abcdef"
+    };
+
+    // Inicialización
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+    /* =============================================================
+       ICON COMPONENTS (wrapping Lucide SVGs via React)
+       ============================================================= */
+    function LucideIcon({ name, className = "w-5 h-5" }) {
+      const ref = useRef(null);
+      useEffect(() => {
+        if (ref.current) {
+          ref.current.innerHTML = '';
+          const el = lucide.createElement(lucide.icons[name]);
+          if (el) {
+            el.classList.add(...className.split(' ').filter(Boolean));
+            ref.current.appendChild(el);
+          }
+        }
+      }, [name, className]);
+      return <span ref={ref} className="inline-flex items-center justify-center" />;
+    }
+
+    /* =============================================================
+       1. SEED DATA — Simulated Database
+       ============================================================= */
+    const ADMIN_PHONE = '699999999';
+
+    const CLASS_TYPES = [
+      { id: 'hatha', name: 'Hatha Suave', icon: 'Leaf', color: 'sage', instructor: 'María López', duration: 60, maxCapacity: 10, description: 'Posturas suaves y respiración consciente.' },
+      { id: 'vinyasa', name: 'Vinyasa Flow', icon: 'Wind', color: 'sage', instructor: 'Carlos Ruiz', duration: 75, maxCapacity: 12, description: 'Secuencias dinámicas sincronizadas con la respiración.' },
+      { id: 'yin', name: 'Yin Yoga', icon: 'Moon', color: 'sage', instructor: 'Elena García', duration: 60, maxCapacity: 8, description: 'Estiramientos profundos y meditación pasiva.' },
+      { id: 'meditacion', name: 'Meditación', icon: 'Sun', color: 'sage', instructor: 'Ana Martín', duration: 45, maxCapacity: 15, description: 'Mindfulness y técnicas de concentración.' },
+      { id: 'ashtanga', name: 'Ashtanga', icon: 'Heart', color: 'terracotta', instructor: 'Pablo Navarro', duration: 90, maxCapacity: 10, description: 'Serie primaria de Ashtanga con ajustes.' },
+    ];
+
+    const SCHEDULE = [
+      { classId: 'hatha', dayOfWeek: 1, time: '09:00' },
+      { classId: 'vinyasa', dayOfWeek: 1, time: '18:00' },
+      { classId: 'yin', dayOfWeek: 2, time: '10:00' },
+      { classId: 'meditacion', dayOfWeek: 2, time: '19:00' },
+      { classId: 'ashtanga', dayOfWeek: 3, time: '07:30' },
+      { classId: 'hatha', dayOfWeek: 3, time: '17:00' },
+      { classId: 'vinyasa', dayOfWeek: 4, time: '09:00' },
+      { classId: 'yin', dayOfWeek: 4, time: '18:30' },
+      { classId: 'meditacion', dayOfWeek: 5, time: '10:00' },
+      { classId: 'ashtanga', dayOfWeek: 5, time: '17:30' },
+      { classId: 'hatha', dayOfWeek: 6, time: '10:00' },
+      { classId: 'vinyasa', dayOfWeek: 6, time: '12:00' },
+    ];
+
+    const FAKE_STUDENTS = [
+      { phone: '611111111', name: 'Laura Sánchez' },
+      { phone: '622222222', name: 'Miguel Torres' },
+      { phone: '633333333', name: 'Sofía Hernández' },
+      { phone: '644444444', name: 'Diego Morales' },
+      { phone: '655555555', name: 'Carmen Jiménez' },
+      { phone: '666666666', name: 'Andrés Vega' },
+      { phone: '677777777', name: 'Lucía Romero' },
+      { phone: '688888888', name: 'Javier Serrano' },
+      { phone: '612345678', name: 'Marta Díaz' },
+      { phone: '698765432', name: 'Pablo Fuentes' },
+    ];
+
+    /* ----- helpers ----- */
+    function sanitizePhone(raw) { return raw.toString().replace(/[^0-9]/g, '').slice(0, 15); }
+    function isValidPhone(p) { return p && p.length >= 9 && p.length <= 15; }
+
+    function formatDate(d) {
+      return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+    }
+    function isSameDay(a, b) {
+      return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    }
+    function getDayName(d) {
+      return d.toLocaleDateString('es-ES', { weekday: 'long' });
+    }
+
+    /* ----- seed generation ----- */
+    function generateSeedData() {
+      const users = {};
+      users[ADMIN_PHONE] = { phone: ADMIN_PHONE, name: 'Administración', role: 'admin', registeredAt: Date.now() };
+      FAKE_STUDENTS.forEach(s => { users[s.phone] = { ...s, role: 'student', registeredAt: Date.now() }; });
+
+      const groups = {};
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() + dayOffset);
+        const dow = date.getDay() === 0 ? 7 : date.getDay();
+
+        SCHEDULE.filter(s => s.dayOfWeek === dow).forEach(sched => {
+          const classType = CLASS_TYPES.find(c => c.id === sched.classId);
+          const groupId = `${sched.classId}_${date.toISOString().slice(0, 10)}_${sched.time}`;
+
+          const slots = [];
+          const studentsToAssign = FAKE_STUDENTS.slice(0, Math.min(classType.maxCapacity, FAKE_STUDENTS.length));
+          studentsToAssign.forEach((st, i) => {
+            const shouldRelease = i >= studentsToAssign.length - 2 && dayOffset > 0;
+            slots.push({
+              slotIndex: i, userId: st.phone, userName: st.name,
+              status: shouldRelease ? 'released' : 'confirmed',
+              originalUserId: st.phone,
+            });
+          });
+
+          for (let i = slots.length; i < classType.maxCapacity; i++) {
+            slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
+          }
+
+          groups[groupId] = { id: groupId, classId: sched.classId, date: date.toISOString().slice(0, 10), time: sched.time, slots };
+        });
+      }
+      return { users, groups };
+    }
+
+    /* =============================================================
+       2. TOAST — Visual Feedback
+       ============================================================= */
+    function Toast({ toasts, onDismiss }) {
+      return (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[200] flex flex-col gap-2 w-[90vw] max-w-sm pointer-events-none">
+          {toasts.map(t => (
+            <div key={t.id} onClick={() => onDismiss(t.id)}
+              className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg backdrop-blur-xl border transition-all duration-500 animate-slide-in
+                ${t.type === 'success' ? 'bg-sage-50/90 border-sage-200 text-sage-800' : ''}
+                ${t.type === 'error' ? 'bg-red-50/90 border-red-200 text-red-800' : ''}
+                ${t.type === 'info' ? 'bg-cream-100/90 border-cream-200 text-sage-800' : ''}
+              `}>
+              <LucideIcon name={t.type === 'success' ? 'Check' : t.type === 'error' ? 'AlertTriangle' : 'Sparkles'}
+                className={`w-5 h-5 shrink-0 ${t.type === 'error' ? 'text-red-500' : 'text-sage-500'}`} />
+              <p className="text-sm font-medium flex-1">{t.message}</p>
+              <LucideIcon name="X" className="w-4 h-4 opacity-40 shrink-0 cursor-pointer" />
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    /* =============================================================
+       3. LOGIN SCREEN
+       ============================================================= */
+    function LoginScreen({ onLogin }) {
+      const [phone, setPhone] = useState('');
+      const [error, setError] = useState('');
+      const inputRef = useRef(null);
+
+      useEffect(() => { inputRef.current?.focus(); }, []);
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        const clean = sanitizePhone(phone);
+        if (!isValidPhone(clean)) { setError('Introduce un número válido (mínimo 9 dígitos)'); return; }
+        onLogin(clean);
+      };
+
+      return (
+        <div className="min-h-dvh flex flex-col items-center justify-center px-6 bg-gradient-to-br from-cream-50 via-sage-50 to-cream-100">
+          <div className="absolute top-20 right-10 w-40 h-40 bg-sage-200/30 rounded-full blur-3xl" />
+          <div className="absolute bottom-32 left-6 w-56 h-56 bg-cream-200/40 rounded-full blur-3xl" />
+
+          <div className="relative z-10 w-full max-w-sm">
+            <div className="text-center mb-10">
+              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-sage-100 mb-4 shadow-sm">
+                <LucideIcon name="Leaf" className="w-10 h-10 text-sage-600" />
+              </div>
+              <h1 className="text-4xl font-serif font-semibold text-sage-800 tracking-tight">Akasha</h1>
+              <p className="text-sage-500 mt-1 text-sm font-light">Tu espacio de yoga</p>
+            </div>
+
+            <form onSubmit={handleSubmit}
+              className="bg-white/70 backdrop-blur-xl rounded-3xl p-6 shadow-[0_8px_40px_rgba(74,103,65,0.08)] border border-sage-100/50">
+              <label htmlFor="phone-input" className="block text-sm font-medium text-sage-700 mb-2">Número de móvil</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2"><LucideIcon name="Phone" className="w-5 h-5 text-sage-400" /></span>
+                <input ref={inputRef} id="phone-input" type="tel" inputMode="numeric" autoComplete="tel"
+                  placeholder="Ej: 612 345 678" value={phone}
+                  onChange={e => { setPhone(sanitizePhone(e.target.value)); setError(''); }}
+                  className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-white/80 border border-sage-200 focus:border-sage-400 focus:ring-2 focus:ring-sage-200 outline-none text-sage-900 placeholder:text-sage-300 transition-all text-lg tracking-widest" />
+              </div>
+              {error && <p className="text-red-500 text-xs mt-2 ml-1">{error}</p>}
+              <button type="submit"
+                className="w-full mt-5 py-3.5 rounded-2xl bg-sage-600 hover:bg-sage-700 active:scale-[0.97] text-white font-semibold tracking-wide shadow-md shadow-sage-600/20 transition-all duration-200">
+                Entrar
+              </button>
+              <p className="text-center text-xs text-sage-400 mt-4">Accede con tu número para ver tus clases y reservas</p>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    /* =============================================================
+       4. HORIZONTAL CALENDAR
+       ============================================================= */
+    function HorizontalCalendar({ selectedDate, onSelect }) {
+      const scrollRef = useRef(null);
+      const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
+
+      const days = useMemo(() => {
+        const arr = [];
+        const start = new Date(today);
+        start.setDate(today.getDate() - 7); // Una semana atrás para referencia
+
+        const end = new Date(selectedDate > today ? selectedDate : today);
+        end.setDate(end.getDate() + 14); // Dos semanas adelante desde la fecha seleccionada
+
+        let curr = new Date(start);
+        while (curr <= end) {
+          arr.push(new Date(curr));
+          curr.setDate(curr.getDate() + 1);
+        }
+        return arr;
+      }, [today, selectedDate]);
+
+      useEffect(() => {
+        if (scrollRef.current) {
+          const idx = days.findIndex(d => isSameDay(d, selectedDate));
+          const child = scrollRef.current.children[idx];
+          if (child) child.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        }
+      }, [selectedDate, days]);
+
+      const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+      return (
+        <div className="relative">
+          <div ref={scrollRef} className="flex gap-2 overflow-x-auto hide-scrollbar py-2 px-1 snap-x snap-mandatory">
+            {days.map(d => {
+              const isSelected = isSameDay(d, selectedDate);
+              const isToday = isSameDay(d, today);
+              return (
+                <button key={d.toISOString()} onClick={() => onSelect(d)}
+                  className={`snap-center shrink-0 flex flex-col items-center w-14 py-2.5 rounded-2xl transition-all duration-200
+                    ${isSelected ? 'bg-sage-600 text-white shadow-md shadow-sage-600/30 scale-105'
+                      : isToday ? 'bg-sage-100 text-sage-700'
+                        : 'bg-white/60 text-sage-600 hover:bg-sage-50'}
+                  `}>
+                  <span className={`text-[10px] font-medium uppercase tracking-wider ${isSelected ? 'text-sage-200' : 'text-sage-400'}`}>
+                    {dayNames[d.getDay()]}
+                  </span>
+                  <span className={`text-lg font-semibold mt-0.5 ${isSelected ? 'text-white' : ''}`}>{d.getDate()}</span>
+                  {isToday && !isSelected && <div className="w-1.5 h-1.5 bg-sage-500 rounded-full mt-1" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    /* =============================================================
+       5. CLASS CARD
+       ============================================================= */
+    function ClassCard({ group, classType, currentUser, onRelease, onBook, onCancel }) {
+      const availableSlots = group.slots.filter(s => s.status === 'released').length;
+      const totalSlots = group.slots.length;
+      const bookedSlots = group.slots.filter(s => s.status === 'confirmed' || s.status === 'booked').length;
+
+      const userSlot = group.slots.find(s => s.userId === currentUser.phone && (s.status === 'confirmed' || s.status === 'booked'));
+      const hasFixedSlot = group.slots.find(s => s.originalUserId === currentUser.phone && s.status === 'confirmed');
+      const hasBookedSlot = group.slots.find(s => s.userId === currentUser.phone && s.status === 'booked');
+      const fillPercent = Math.round((bookedSlots / totalSlots) * 100);
+
+      return (
+        <article className="bg-white/70 backdrop-blur-xl rounded-3xl p-5 shadow-[0_4px_24px_rgba(74,103,65,0.06)] border border-sage-100/60 transition-all duration-300 hover:shadow-[0_8px_32px_rgba(74,103,65,0.1)]">
+          {/* Header */}
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm
+                ${classType.color === 'terracotta' ? 'bg-orange-50 text-terracotta-500' : 'bg-sage-50 text-sage-600'}`}>
+                <LucideIcon name={classType.icon} className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-sage-900 text-[15px] leading-tight">{classType.name}</h3>
+                <p className="text-xs text-sage-400 mt-0.5">{classType.instructor}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-sage-500">
+              <LucideIcon name="Clock" className="w-3.5 h-3.5" />
+              <span className="text-sm font-medium">{group.time}</span>
+            </div>
+          </div>
+
+          <p className="text-xs text-sage-400 mb-3 leading-relaxed">{classType.description}</p>
+
+          {/* Capacity bar */}
+          <div className="mb-3">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-xs font-medium text-sage-500">Ocupación</span>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full
+                ${availableSlots === 0 ? 'bg-red-50 text-red-500' : availableSlots <= 2 ? 'bg-amber-50 text-amber-600' : 'bg-sage-50 text-sage-600'}
+              `}>
+                {availableSlots > 0 ? `¡${availableSlots} hueco${availableSlots !== 1 ? 's' : ''} libre${availableSlots !== 1 ? 's' : ''}!` : 'Completa'}
+              </span>
+            </div>
+            <div className="w-full h-2 bg-sage-100 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all duration-500
+                ${fillPercent >= 90 ? 'bg-red-400' : fillPercent >= 70 ? 'bg-amber-400' : 'bg-sage-400'}`}
+                style={{ width: `${fillPercent}%` }} />
+            </div>
+            <p className="text-[10px] text-sage-400 mt-1">{bookedSlots}/{totalSlots} plazas ocupadas · {classType.duration} min</p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            {hasFixedSlot && (
+              <button onClick={() => onRelease(group.id, hasFixedSlot.slotIndex)}
+                className="flex-1 py-2.5 px-4 rounded-2xl bg-amber-50 hover:bg-amber-100 active:scale-[0.97] text-amber-700 text-sm font-semibold transition-all border border-amber-200/60">
+                No asistiré
+              </button>
+            )}
+            {hasBookedSlot && (
+              <button onClick={() => onCancel(group.id, hasBookedSlot.slotIndex)}
+                className="flex-1 py-2.5 px-4 rounded-2xl bg-red-50 hover:bg-red-100 active:scale-[0.97] text-red-600 text-sm font-semibold transition-all border border-red-200/60">
+                Cancelar reserva
+              </button>
+            )}
+            {!userSlot && availableSlots > 0 && (
+              <button onClick={() => onBook(group.id)}
+                className="flex-1 py-2.5 px-4 rounded-2xl bg-sage-600 hover:bg-sage-700 active:scale-[0.97] text-white text-sm font-semibold transition-all shadow-sm shadow-sage-600/20">
+                Reservar hueco
+              </button>
+            )}
+            {!userSlot && availableSlots === 0 && (
+              <div className="flex-1 py-2.5 px-4 rounded-2xl bg-sage-50 text-sage-400 text-sm font-medium text-center">
+                Sin huecos disponibles
+              </div>
+            )}
+          </div>
+        </article>
+      );
+    }
+
+    /* =============================================================
+       6. ADMIN VIEW
+       ============================================================= */
+    /* =============================================================
+       6. MODALS & ADMIN TOOLS
+       ============================================================= */
+    function Modal({ title, onClose, children }) {
+      return (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-sage-900/40 backdrop-blur-sm transition-opacity">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-slide-in">
+            <div className="px-6 py-4 border-b border-sage-100 flex items-center justify-between bg-sage-50/50">
+              <h3 className="font-serif text-lg font-semibold text-sage-800">{title}</h3>
+              <button onClick={onClose} className="p-2 hover:bg-sage-100 rounded-xl transition-colors">
+                <LucideIcon name="X" className="w-5 h-5 text-sage-400" />
+              </button>
+            </div>
+            <div className="p-6">{children}</div>
+          </div>
+        </div>
+      );
+    }
+
+    function AdminView({ users, groups, onLogout, addToast, onAddGroup, onDeleteGroup, onUpdateSlot, onUpdateCapacity, onAddStudent, onUpdateUser }) {
+      const [search, setSearch] = useState('');
+      const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
+      const [showAddModal, setShowAddModal] = useState(false);
+      const [showUserModal, setShowUserModal] = useState(false);
+      const [editingGroupId, setEditingGroupId] = useState(null);
+
+      const dayGroups = Object.values(groups)
+        .filter(g => g.date === selectedDate.toISOString().slice(0, 10))
+        .sort((a, b) => a.time.localeCompare(b.time));
+
+      const getCT = (g) => CLASS_TYPES.find(c => c.id === g.classId) || { name: g.customName || 'Evento', icon: 'Sparkles', color: 'sage', instructor: 'Admin', description: 'Evento especial programado' };
+
+      const editingGroup = editingGroupId ? groups[editingGroupId] : null;
+      const studentOptions = Object.values(users).filter(u => u.role === 'student');
+
+      return (
+        <div className="min-h-dvh bg-gradient-to-br from-cream-50 via-sage-50 to-cream-100">
+          {/* Header */}
+          <header className="sticky top-0 z-30 bg-white/70 backdrop-blur-xl border-b border-sage-100/50 px-4 py-3">
+            <div className="flex items-center justify-between max-w-lg mx-auto w-full">
+              <div className="flex items-center gap-2">
+                <LucideIcon name="Shield" className="w-5 h-5 text-sage-600" />
+                <h1 className="font-serif text-lg font-semibold text-sage-800">Panel Admin</h1>
+              </div>
+              <button onClick={onLogout} className="p-2 rounded-xl bg-sage-50 hover:bg-sage-100 text-sage-600 transition-all flex items-center gap-2">
+                <span className="text-xs font-semibold">Salir</span>
+                <LucideIcon name="LogOut" className="w-5 h-5" />
+              </button>
+            </div>
+          </header>
+
+          <main className="max-w-lg mx-auto px-4 pb-8">
+            {/* Stats */}
+            <section className="grid grid-cols-3 gap-3 my-4">
+              <div className="bg-white/70 backdrop-blur-xl rounded-2xl p-3 text-center border border-sage-100/50 shadow-sm flex flex-col items-center justify-center">
+                <p className="text-2xl font-bold text-sage-700">{Object.values(users).filter(u => u.role === 'student').length}</p>
+                <button onClick={() => setShowUserModal(true)} className="text-[10px] text-sage-600 font-bold hover:underline">Ver/Añadir Alumnos</button>
+              </div>
+              <div className="bg-white/70 backdrop-blur-xl rounded-2xl p-3 text-center border border-sage-100/50 shadow-sm">
+                <p className="text-2xl font-bold text-sage-700">{Object.values(groups).length}</p>
+                <p className="text-[10px] text-sage-400 mt-0.5 font-medium">Clases Totales</p>
+              </div>
+              <button onClick={() => setShowAddModal(true)}
+                className="bg-sage-600 rounded-2xl p-3 text-center text-white shadow-lg shadow-sage-200 active:scale-95 transition-all flex flex-col items-center justify-center">
+                <LucideIcon name="Plus" className="w-5 h-5 mb-0.5" />
+                <p className="text-[10px] font-bold">Nueva Clase</p>
+              </button>
+            </section>
+
+            <section aria-label="Gestor de clases">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 group cursor-pointer" onClick={() => document.getElementById('adminDatePicker').showPicker ? document.getElementById('adminDatePicker').showPicker() : document.getElementById('adminDatePicker').click()}>
+                  <div className="p-2 bg-sage-100 rounded-xl text-sage-600 group-hover:bg-sage-600 group-hover:text-white transition-all shadow-sm">
+                    <LucideIcon name="CalendarDays" className="w-5 h-5" />
+                  </div>
+                  <h2 className="font-semibold text-sage-800">Gestión por día</h2>
+                  <input type="date" id="adminDatePicker" className="sr-only"
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const [y, m, d] = e.target.value.split('-');
+                        const newDate = new Date(y, m - 1, d);
+                        setSelectedDate(newDate);
+                      }
+                    }} />
+                </div>
+              </div>
+              <HorizontalCalendar selectedDate={selectedDate} onSelect={setSelectedDate} />
+
+              <div className="space-y-3 mt-4">
+                {dayGroups.length === 0 && (
+                  <div className="text-center py-10 bg-white/40 rounded-3xl border border-dashed border-sage-200">
+                    <LucideIcon name="Moon" className="w-10 h-10 text-sage-200 mx-auto mb-2" />
+                    <p className="text-sm text-sage-400">No hay clases programadas</p>
+                  </div>
+                )}
+                {dayGroups.map(g => {
+                  const ct = getCT(g);
+                  const available = g.slots.filter(s => s.status === 'released').length;
+                  return (
+                    <div key={g.id} onClick={() => setEditingGroupId(g.id)}
+                      className="bg-white/70 backdrop-blur-xl rounded-2xl p-4 border border-sage-100/50 shadow-sm hover:border-sage-300 cursor-pointer transition-all active:scale-[0.99]">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-sage-800">{ct?.name}</span>
+                          <span className="text-xs text-sage-500 bg-sage-50 px-2 py-0.5 rounded-lg">{g.time}h</span>
+                        </div>
+                        <LucideIcon name="Shield" className="w-4 h-4 text-sage-300" />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {g.slots.map((sl, i) => (
+                          <div key={i} className={`w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold
+                            ${sl.status === 'released' ? 'bg-sage-50 text-sage-300 border border-dashed border-sage-200' : 'bg-sage-600 text-white'}`}>
+                            {sl.status === 'released' ? '+' : sl.userName?.[0]}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] text-sage-400 font-medium">Capacidad: {g.slots.length} plazas · {available} libres</p>
+                        <span className="text-[10px] text-sage-600 font-bold uppercase tracking-wider">Gestionar →</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </main>
+
+          {/* Add Group Modal */}
+          {showAddModal && (
+            <Modal title="Crear Nueva Clase" onClose={() => setShowAddModal(false)}>
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                onAddGroup(
+                  formData.get('classId'),
+                  selectedDate.toISOString().slice(0, 10),
+                  formData.get('time'),
+                  parseInt(formData.get('capacity')),
+                  formData.get('customName')
+                );
+                setShowAddModal(false);
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-sage-500 uppercase mb-2">Tipo de Yoga / Evento</label>
+                  <select name="classId" id="classSelect" className="w-full p-3 rounded-2xl bg-sage-50 border-none text-sm font-medium"
+                    onChange={(e) => {
+                      const customInput = document.getElementById('customNameField');
+                      if (customInput) customInput.style.display = e.target.value === 'custom' ? 'block' : 'none';
+                    }}>
+                    {CLASS_TYPES.map(ct => <option key={ct.id} value={ct.id}>{ct.name}</option>)}
+                    <option value="custom">✨ Evento Personalizado...</option>
+                  </select>
+                </div>
+
+                <div id="customNameField" style={{ display: 'none' }} className="animate-slide-in">
+                  <label className="block text-xs font-bold text-sage-500 uppercase mb-2">Nombre del Evento</label>
+                  <input name="customName" type="text" placeholder="Ej: Taller de Meditación" className="w-full p-3 rounded-2xl bg-sage-50 border-none text-sm font-medium" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-sage-500 uppercase mb-2">Hora (HH:MM)</label>
+                    <input name="time" type="time" required className="w-full p-3 rounded-2xl bg-sage-50 border-none text-sm font-medium" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-sage-500 uppercase mb-2">Aforo Máx.</label>
+                    <input name="capacity" type="number" defaultValue="12" min="1" max="30" className="w-full p-3 rounded-2xl bg-sage-50 border-none text-sm font-medium" />
+                  </div>
+                </div>
+                <button type="submit" className="w-full py-4 bg-sage-600 text-white rounded-2xl font-bold shadow-lg shadow-sage-100 active:scale-95 transition-all">
+                  Crear Clase
+                </button>
+              </form>
+            </Modal>
+          )}
+
+          {/* Manage Users Modal */}
+          {showUserModal && (
+            <Modal title="Gestión de Alumnos" onClose={() => setShowUserModal(false)}>
+              <div className="space-y-4">
+                <div className="relative mb-2">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sage-400">
+                    <LucideIcon name="Search" className="w-4 h-4" />
+                  </span>
+                  <input type="text" placeholder="Buscar alumno por nombre o teléfono..."
+                    value={search} onChange={(e) => setSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-sage-50 border border-sage-100 rounded-xl text-xs focus:ring-1 focus:ring-sage-200 outline-none" />
+                </div>
+
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.target);
+                  onAddStudent(formData.get('name'), formData.get('phone'));
+                  e.target.reset();
+                }} className="bg-sage-50 p-4 rounded-2xl space-y-3">
+                  <p className="text-[10px] font-bold text-sage-500 uppercase">Alta de Nuevo Alumno</p>
+                  <input name="name" type="text" placeholder="Nombre completo" required className="w-full p-2.5 rounded-xl border-none text-sm" />
+                  <input name="phone" type="tel" placeholder="Teléfono" required className="w-full p-2.5 rounded-xl border-none text-sm" />
+                  <button type="submit" className="w-full py-2 bg-sage-600 text-white rounded-xl text-xs font-bold shadow-md">
+                    Registrar Alumno
+                  </button>
+                </form>
+
+                <div className="pt-2">
+                  <p className="text-[10px] font-bold text-sage-500 uppercase mb-2">Alumnos Registrados</p>
+                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                    {Object.values(users)
+                      .filter(u => u.phone !== ADMIN_PHONE)
+                      .filter(u => !search || u.name.toLowerCase().includes(search.toLowerCase()) || u.phone.includes(search))
+                      .sort((a, b) => (b.registeredAt || 0) - (a.registeredAt || 0))
+                      .map(u => (
+                        <div key={u.phone} className={`p-3 rounded-2xl border transition-all ${u.isBlocked ? 'bg-red-50 border-red-100 opacity-75' : 'bg-white border-sage-100 shadow-sm'}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex flex-col">
+                              <span className={`text-xs font-bold ${u.isBlocked ? 'text-red-700' : 'text-sage-800'}`}>{u.name} {u.isBlocked && '(BLOQUEADO)'}</span>
+                              <span className="text-[10px] text-sage-400">{u.phone}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => onUpdateUser(u.phone, { isBlocked: !u.isBlocked })}
+                                className={`p-2 rounded-xl transition-colors ${u.isBlocked ? 'bg-red-500 text-white' : 'bg-sage-50 text-sage-400 hover:text-red-500'}`} title="Bloquear/Desbloquear">
+                                <LucideIcon name="Shield" className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 bg-sage-50/50 p-2 rounded-xl">
+                            <span className="text-[10px] font-bold text-sage-500 uppercase">Cupo/Mes:</span>
+                            <input type="number" defaultValue={u.quota || 8} min="1" max="99"
+                              className="w-12 bg-white border-none text-xs font-bold text-sage-700 rounded-lg p-1 text-center"
+                              onChange={(e) => onUpdateUser(u.phone, { quota: parseInt(e.target.value) })} />
+                            <span className="text-[10px] text-sage-400 italic">clases</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            </Modal>
+          )}
+
+          {/* Manage Slots Modal */}
+          {editingGroup && (
+            <Modal title={`Gestionar: ${getCT(editingGroup).name}`} onClose={() => setEditingGroupId(null)}>
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-xs font-bold text-sage-500 uppercase mb-3 text-center">Ajustar Aforo del Grupo</label>
+                  <div className="flex items-center justify-center gap-4 bg-sage-50 p-4 rounded-3xl border border-sage-100">
+                    <button onClick={() => {
+                      onUpdateCapacity(editingGroup.id, Math.max(1, editingGroup.slots.length - 1));
+                    }}
+                      className="p-3 bg-white shadow-sm rounded-2xl hover:bg-sage-100 active:scale-90 active:bg-red-50 transition-all text-sage-600">
+                      <LucideIcon name="Minus" className="w-5 h-5" />
+                    </button>
+
+                    <input type="number" min="1" max="50"
+                      value={editingGroup.slots.length}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        if (!isNaN(val) && val >= 1) onUpdateCapacity(editingGroup.id, val);
+                      }}
+                      className="w-20 text-2xl font-bold text-sage-800 bg-transparent border-none text-center focus:ring-0 p-0" />
+
+                    <button onClick={() => {
+                      onUpdateCapacity(editingGroup.id, editingGroup.slots.length + 1);
+                    }}
+                      className="p-3 bg-white shadow-sm rounded-2xl hover:bg-sage-100 active:scale-90 active:bg-sage-100 transition-all text-sage-600">
+                      <LucideIcon name="Plus" className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-sage-400 text-center mt-2 font-medium tracking-wide uppercase">Clica en el número para editar directamente</p>
+                </div>
+
+                <div className="border-t border-sage-100 pt-5">
+                  <label className="block text-xs font-bold text-sage-500 uppercase mb-4">Listado de Asistentes</label>
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {editingGroup.slots.map((sl, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 bg-sage-50/50 rounded-2xl border border-sage-100">
+                        {sl.status === 'released' ? (
+                          <>
+                            <select className="flex-1 bg-transparent text-xs font-medium border-none focus:ring-0"
+                              onChange={(e) => {
+                                const user = studentOptions.find(u => u.phone === e.target.value);
+                                if (user) onUpdateSlot(editingGroup.id, idx, user);
+                              }}>
+                              <option value="">+ Añadir Alumno...</option>
+                              {studentOptions.map(u => <option key={u.phone} value={u.phone}>{u.name} ({u.phone})</option>)}
+                            </select>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-sage-800">{sl.userName}</span>
+                              <span className="text-[10px] text-sage-400">{sl.userId}</span>
+                            </div>
+                            <button onClick={() => onUpdateSlot(editingGroup.id, idx, null)}
+                              className="p-2 text-red-400 hover:bg-red-50 rounded-xl transition-colors">
+                              <LucideIcon name="UserX" className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-sage-100 mt-2">
+                  <button onClick={() => {
+                    if (confirm(`¿Estás seguro de que quieres eliminar este evento: ${getCT(editingGroup).name}?`)) {
+                      onDeleteGroup(editingGroup.id);
+                      setEditingGroupId(null);
+                    }
+                  }}
+                    className="w-full py-3 bg-red-50 text-red-600 rounded-2xl text-xs font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2">
+                    <LucideIcon name="Shield" className="w-4 h-4 text-red-400" />
+                    ELIMINAR ESTE EVENTO
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-sage-400 text-center italic mt-4">Los cambios se guardan automáticamente en la nube simulada.</p>
+              </div>
+            </Modal>
+          )}
+        </div>
+      );
+    }
+
+    /* =============================================================
+       7. STUDENT VIEW
+       ============================================================= */
+    function StudentView({ currentUser, groups, onRelease, onBook, onCancel, onLogout }) {
+      const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
+      const [tab, setTab] = useState('clases');
+
+      const getCT = (g) => CLASS_TYPES.find(c => c.id === g.classId) || { name: g.customName || 'Evento', icon: 'Sparkles', color: 'sage', instructor: 'Especial', description: 'Clase especial programada por la escuela.' };
+
+      const dayGroups = Object.values(groups)
+        .filter(g => g.date === selectedDate.toISOString().slice(0, 10))
+        .sort((a, b) => a.time.localeCompare(b.time));
+
+      const myBookings = Object.values(groups)
+        .filter(g => g.slots.some(s => s.userId === currentUser.phone && (s.status === 'confirmed' || s.status === 'booked')))
+        .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+
+      return (
+        <div className="min-h-dvh bg-gradient-to-br from-cream-50 via-sage-50 to-cream-100">
+          <header className="sticky top-0 z-30 bg-white/70 backdrop-blur-xl border-b border-sage-100/50 px-4 pt-3 pb-0">
+            <div className="flex items-center justify-between max-w-lg mx-auto w-full mb-3">
+              <div className="flex-1">
+                <h1 className="font-serif text-lg font-semibold text-sage-800">Namaste, {currentUser.name?.split(' ')[0] || 'Yogui'}</h1>
+                <p className="text-xs text-sage-400">Encuentra tu próxima clase</p>
+              </div>
+              <button onClick={onLogout} className="p-2 rounded-xl bg-sage-50 hover:bg-sage-100 text-sage-600 transition-all flex items-center gap-2 shrink-0">
+                <span className="text-xs font-semibold">Salir</span>
+                <LucideIcon name="LogOut" className="w-5 h-5" />
+              </button>
+            </div>
+            <nav className="flex gap-1 max-w-lg mx-auto bg-sage-100/50 rounded-2xl p-1" aria-label="Navegación principal">
+              <button onClick={() => setTab('clases')}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium transition-all duration-200
+                  ${tab === 'clases' ? 'bg-white shadow-sm text-sage-800' : 'text-sage-500 hover:text-sage-700'}`}>
+                Clases
+              </button>
+              <button onClick={() => setTab('misReservas')}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium transition-all duration-200
+                  ${tab === 'misReservas' ? 'bg-white shadow-sm text-sage-800' : 'text-sage-500 hover:text-sage-700'}`}>
+                Mis reservas
+              </button>
+            </nav>
+          </header>
+
+          <main className="max-w-lg mx-auto px-4 pb-8">
+            {tab === 'clases' && (
+              <>
+                <div className="mt-4 mb-2">
+                  <HorizontalCalendar selectedDate={selectedDate} onSelect={setSelectedDate} />
+                </div>
+                <p className="text-xs text-sage-400 font-medium uppercase tracking-wider mb-3 ml-1">
+                  {getDayName(selectedDate)} · {formatDate(selectedDate)}
+                </p>
+                <div className="space-y-3">
+                  {dayGroups.length === 0 && (
+                    <div className="text-center py-16">
+                      <LucideIcon name="Moon" className="w-12 h-12 text-sage-200 mx-auto mb-3" />
+                      <p className="text-sage-400 text-sm">No hay clases programadas</p>
+                      <p className="text-sage-300 text-xs mt-1">Prueba otro día del calendario</p>
+                    </div>
+                  )}
+                  {dayGroups.map(g => {
+                    const ct = getCT(g);
+                    return (
+                      <ClassCard key={g.id} group={g} classType={ct} currentUser={currentUser}
+                        onRelease={onRelease} onBook={onBook} onCancel={onCancel} />
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {tab === 'misReservas' && (
+              <div className="mt-4">
+                {myBookings.length === 0 && (
+                  <div className="text-center py-16">
+                    <LucideIcon name="CalendarDays" className="w-12 h-12 text-sage-200 mx-auto mb-3" />
+                    <p className="text-sage-400 text-sm">Aún no tienes reservas</p>
+                    <p className="text-sage-300 text-xs mt-1">Explora las clases disponibles</p>
+                  </div>
+                )}
+                <div className="space-y-3">
+                  {myBookings.map(g => {
+                    const ct = getCT(g);
+                    const slot = g.slots.find(s => s.userId === currentUser.phone && (s.status === 'confirmed' || s.status === 'booked'));
+                    return (
+                      <div key={g.id} className="bg-white/70 backdrop-blur-xl rounded-3xl p-4 border border-sage-100/60 shadow-sm">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center
+                              ${ct.color === 'terracotta' ? 'bg-orange-50 text-terracotta-500' : 'bg-sage-50 text-sage-600'}`}>
+                              <LucideIcon name={ct.icon} className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-semibold text-sage-800">{ct.name}</h3>
+                              <p className="text-xs text-sage-400">
+                                {new Date(g.date + 'T00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })} · {g.time}
+                              </p>
+                            </div>
+                          </div>
+                          <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider
+                            ${slot?.status === 'confirmed' ? 'bg-sage-50 text-sage-600' : 'bg-blue-50 text-blue-600'}`}>
+                            {slot?.status === 'confirmed' ? 'Fija' : 'Reservada'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    /* =============================================================
+       8. MAIN APP — State Management & Concurrency
+       ============================================================= */
+    function App() {
+      const [currentUser, setCurrentUser] = useState(() => {
+        try { const s = localStorage.getItem('akasha_user'); return s ? JSON.parse(s) : null; } catch { return null; }
+      });
+      const [data, setData] = useState({ users: {}, groups: {} });
+      const [isCloudLoaded, setIsCloudLoaded] = useState(false);
+      const [toasts, setToasts] = useState([]);
+      const toastIdRef = useRef(0);
+      const lockRef = useRef(new Set());
+
+      const addToast = useCallback((message, type = 'info') => {
+        const id = ++toastIdRef.current;
+        setToasts(prev => [...prev, { id, message, type }]);
+        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
+      }, []);
+
+      // MODO HÍBRIDO: NUBE + LOCAL DE SEGURIDAD
+      useEffect(() => {
+        let isActive = true;
+        const cloudTimeout = setTimeout(() => {
+          if (isActive && !isCloudLoaded) {
+            console.log("Usando persistencia local (Nube no configurada)");
+            const localData = localStorage.getItem('akasha_data');
+            setData(localData ? JSON.parse(localData) : generateSeedData());
+            setIsCloudLoaded(true);
+          }
+        }, 3000);
+
+        const startSync = async () => {
+          try {
+            await auth.signInAnonymously();
+            const path = `/artifacts/${window.__app_id || 'akasha'}/public/data/sessions/main`;
+            const docRef = db.doc(path);
+
+            return docRef.onSnapshot((docSnap) => {
+              if (docSnap.exists) {
+                setData(docSnap.data());
+              } else {
+                const seed = generateSeedData();
+                docRef.set(seed);
+                setData(seed);
+              }
+              setIsCloudLoaded(true);
+              clearTimeout(cloudTimeout);
+            }, (error) => {
+              console.warn("Cloud Sync deshabilitado:", error.message);
+            });
+          } catch (err) {
+            console.warn("Auth deshabilitado:", err.message);
+          }
+        };
+
+        const unsubPromise = startSync();
+        return () => {
+          isActive = false;
+          clearTimeout(cloudTimeout);
+          unsubPromise.then(u => u && u());
+        };
+      }, [addToast, isCloudLoaded]);
+
+      // GUARDADO DUAL
+      useEffect(() => {
+        if (!isCloudLoaded) return;
+        localStorage.setItem('akasha_data', JSON.stringify(data));
+        const syncToCloud = async () => {
+          try {
+            const path = `/artifacts/${window.__app_id || 'akasha'}/public/data/sessions/main`;
+            await db.doc(path).update(data);
+          } catch (err) { }
+        };
+        const timer = setTimeout(syncToCloud, 1000);
+        return () => clearTimeout(timer);
+      }, [data, isCloudLoaded]);
+
+      useEffect(() => {
+        if (currentUser) localStorage.setItem('akasha_user', JSON.stringify(currentUser));
+        else localStorage.removeItem('akasha_user');
+      }, [currentUser]);
+
+      const dismissToast = useCallback(id => setToasts(prev => prev.filter(t => t.id !== id)), []);
+
+      const handleLogin = useCallback((phone) => {
+        const clean = sanitizePhone(phone);
+        if (!isValidPhone(clean)) return;
+        let user = data.users[clean];
+        if (!user) {
+          addToast('Número no registrado — Contacta con administración.', 'error');
+          return;
+        }
+        if (user.isBlocked) {
+          addToast('Acceso restringido. Contacta con administración.', 'error');
+          return;
+        }
+        setCurrentUser(user);
+        addToast(`¡Bienvenid@, ${user.name.split(' ')[0]}!`, 'success');
+      }, [data.users, addToast]);
+
+      const handleLogout = useCallback(() => {
+        setCurrentUser(null);
+        addToast('Sesión cerrada', 'info');
+      }, [addToast]);
+
+      const handleAddStudent = useCallback((name, phone) => {
+        const clean = sanitizePhone(phone);
+        if (!isValidPhone(clean)) { addToast('Introduce un teléfono válido (9-15 cifras)', 'error'); return; }
+
+        setData(prev => {
+          if (prev.users[clean]) {
+            setTimeout(() => addToast('Este teléfono ya está registrado', 'info'), 10);
+            return prev;
+          }
+          const newUser = { phone: clean, name, role: 'student', registeredAt: Date.now(), quota: 8, isBlocked: false };
+          setTimeout(() => addToast(`Alumno ${name} registrado correctamente`, 'success'), 10);
+          return {
+            ...prev,
+            users: {
+              ...prev.users,
+              [clean]: newUser
+            }
+          };
+        });
+      }, [addToast]);
+
+      const handleUpdateUser = useCallback((phone, updates) => {
+        setData(prev => ({
+          ...prev,
+          users: {
+            ...prev.users,
+            [phone]: { ...prev.users[phone], ...updates }
+          }
+        }));
+      }, []);
+
+      /* --- Admin Advanced Actions --- */
+      const handleAddGroup = useCallback((classId, date, time, capacity, customName) => {
+        setData(prev => {
+          const suffix = customName ? `_${customName.replace(/\s+/g, '')}` : '';
+          const groupId = `${classId}${suffix}_${date}_${time.replace(':', '')}`;
+          if (prev.groups[groupId]) {
+            setTimeout(() => addToast('Ya existe una clase a esa hora', 'info'), 10);
+            return prev;
+          }
+          const slots = Array.from({ length: capacity }, (_, i) => ({
+            slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null
+          }));
+          const newGroups = { ...prev.groups, [groupId]: { id: groupId, classId, date, time, slots, customName } };
+          return { ...prev, groups: newGroups };
+        });
+        addToast('Clase creada correctamente', 'success');
+      }, [addToast]);
+
+      const handleAdminUpdateSlot = useCallback((groupId, slotIndex, user) => {
+        setData(prev => {
+          const group = prev.groups[groupId];
+          let updatedSlots = [...group.slots];
+
+          if (user) {
+            // Añadir: buscamos el primer hueco libre
+            const idx = updatedSlots.findIndex(s => s.status === 'released');
+            if (idx !== -1) {
+              updatedSlots[idx] = { ...updatedSlots[idx], userId: user.phone, userName: user.name, status: 'confirmed' };
+            }
+          } else {
+            // Quitar: vaciamos la posición actual
+            updatedSlots[slotIndex] = { ...updatedSlots[slotIndex], userId: null, userName: null, status: 'released' };
+          }
+
+          // LÓGICA DE COMPACTACIÓN
+          const occupied = updatedSlots.filter(s => s.status !== 'released');
+          const capacity = group.slots.length;
+          const compacted = Array.from({ length: capacity }, (_, i) => {
+            if (i < occupied.length) {
+              return { ...occupied[i], slotIndex: i };
+            }
+            return { slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null };
+          });
+
+          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted } } };
+        });
+        addToast(user ? 'Alumno asignado manual' : 'Plaza liberada por Administrador', 'info');
+      }, [addToast]);
+
+      const handleUpdateCapacity = useCallback((groupId, newCapacity) => {
+        setData(prev => {
+          const group = prev.groups[groupId];
+          let newSlots = [...group.slots];
+          if (newCapacity > group.slots.length) {
+            for (let i = group.slots.length; i < newCapacity; i++) {
+              newSlots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
+            }
+          } else {
+            newSlots = newSlots.slice(0, newCapacity);
+          }
+          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: newSlots.map((s, i) => ({ ...s, slotIndex: i })) } } };
+        });
+      }, []);
+
+      const handleDeleteGroup = useCallback((groupId) => {
+        setData(prev => {
+          const newGroups = { ...prev.groups };
+          delete newGroups[groupId];
+          return { ...prev, groups: newGroups };
+        });
+        addToast('Evento eliminado correctamente', 'info');
+      }, [addToast]);
+
+      const handleRelease = useCallback((groupId, slotIndex) => {
+        setData(prev => {
+          const group = prev.groups[groupId];
+          if (!group) return prev;
+
+          // Marcamos como libre y compactamos
+          const updatedSlots = group.slots.map((s, i) =>
+            i === slotIndex ? { ...s, status: 'released', userId: null, userName: null } : s
+          );
+
+          const occupied = updatedSlots.filter(s => s.status !== 'released');
+          const capacity = group.slots.length;
+          const compacted = Array.from({ length: capacity }, (_, i) => {
+            if (i < occupied.length) return { ...occupied[i], slotIndex: i };
+            return { slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null };
+          });
+
+          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted } } };
+        });
+        addToast('Plaza liberada — otro yogui podrá disfrutarla 🙏', 'success');
+      }, [addToast]);
+
+      const handleBook = useCallback((groupId) => {
+        const lockKey = `${groupId}_${currentUser?.phone}`;
+        if (lockKey.includes('undefined')) return;
+        if (lockRef.current.has(lockKey)) { addToast('Ya estás procesando esta reserva…', 'info'); return; }
+        lockRef.current.add(lockKey);
+
+        setData(prev => {
+          const group = prev.groups[groupId];
+          if (!group) { lockRef.current.delete(lockKey); return prev; }
+
+          // VERIFICAR CUPO
+          const userObj = prev.users[currentUser.phone];
+          const userQuota = userObj?.quota || 8;
+          const currentMonth = group.date.slice(0, 7); // YYYY-MM
+          const monthlyBookings = Object.values(prev.groups).filter(g =>
+            g.date.startsWith(currentMonth) &&
+            g.slots.some(s => s.userId === currentUser.phone && (s.status === 'booked' || s.status === 'confirmed'))
+          ).length;
+
+          if (monthlyBookings >= userQuota) {
+            setTimeout(() => addToast(`Has alcanzado tu cupo de ${userQuota} clases este mes`, 'error'), 10);
+            lockRef.current.delete(lockKey); return prev;
+          }
+
+          const slotIdx = group.slots.findIndex(s => s.status === 'released');
+          if (slotIdx === -1) {
+            setTimeout(() => addToast('¡Vaya! Ese hueco acaba de ser reservado por otro yogui', 'error'), 10);
+            lockRef.current.delete(lockKey); return prev;
+          }
+
+          if (group.slots.some(s => s.userId === currentUser?.phone)) {
+            setTimeout(() => addToast('Ya tienes una plaza en esta clase', 'info'), 10);
+            lockRef.current.delete(lockKey); return prev;
+          }
+
+          const newSlots = group.slots.map((s, i) =>
+            i === slotIdx ? { ...s, status: 'booked', userId: currentUser.phone, userName: currentUser.name } : s
+          );
+
+          // Al reservar siempre queda al final de los ocupados, así que no suele generar huecos, 
+          // pero compactamos por seguridad
+          const occupied = newSlots.filter(s => s.status !== 'released');
+          const capacity = group.slots.length;
+          const compacted = Array.from({ length: capacity }, (_, i) => {
+            if (i < occupied.length) return { ...occupied[i], slotIndex: i };
+            return { slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null };
+          });
+
+          lockRef.current.delete(lockKey);
+          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted } } };
+        });
+        addToast('¡Reserva confirmada! Nos vemos en la esterilla 🧘', 'success');
+      }, [currentUser, addToast]);
+
+      const handleCancel = useCallback((groupId, slotIndex) => {
+        setData(prev => {
+          const group = prev.groups[groupId];
+          if (!group) return prev;
+
+          const updatedSlots = group.slots.map((s, i) =>
+            i === slotIndex ? { ...s, status: 'released', userId: null, userName: null } : s
+          );
+
+          const occupied = updatedSlots.filter(s => s.status !== 'released');
+          const capacity = group.slots.length;
+          const compacted = Array.from({ length: capacity }, (_, i) => {
+            if (i < occupied.length) return { ...occupied[i], slotIndex: i };
+            return { slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null };
+          });
+
+          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted } } };
+        });
+        addToast('Reserva cancelada — el hueco vuelve a estar libre', 'info');
+      }, [addToast]);
+
+      const isAdmin = currentUser?.role === 'admin';
+
+      return (
+        <>
+          <Toast toasts={toasts} onDismiss={dismissToast} />
+          {!currentUser && <LoginScreen onLogin={handleLogin} />}
+          {currentUser && isAdmin && (
+            <AdminView
+              users={data.users}
+              groups={data.groups}
+              onLogout={handleLogout}
+              addToast={addToast}
+              onAddGroup={handleAddGroup}
+              onDeleteGroup={handleDeleteGroup}
+              onUpdateSlot={handleAdminUpdateSlot}
+              onUpdateCapacity={handleUpdateCapacity}
+              onAddStudent={handleAddStudent}
+              onUpdateUser={handleUpdateUser}
+            />
+          )}
+          {currentUser && !isAdmin && (
+            <StudentView currentUser={currentUser} groups={data.groups}
+              onRelease={handleRelease} onBook={handleBook} onCancel={handleCancel} onLogout={handleLogout} />
+          )}
+        </>
+      );
+    }
+
+    /* Mount */
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+</body>
+
+</html>
