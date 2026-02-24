@@ -201,18 +201,7 @@
       { classId: 'vinyasa', dayOfWeek: 6, time: '12:00' },
     ];
 
-    const FAKE_STUDENTS = [
-      { phone: '611111111', name: 'Laura Sánchez' },
-      { phone: '622222222', name: 'Miguel Torres' },
-      { phone: '633333333', name: 'Sofía Hernández' },
-      { phone: '644444444', name: 'Diego Morales' },
-      { phone: '655555555', name: 'Carmen Jiménez' },
-      { phone: '666666666', name: 'Andrés Vega' },
-      { phone: '677777777', name: 'Lucía Romero' },
-      { phone: '688888888', name: 'Javier Serrano' },
-      { phone: '612345678', name: 'Marta Díaz' },
-      { phone: '698765432', name: 'Pablo Fuentes' },
-    ];
+    const FAKE_STUDENTS = [];
 
     /* ----- helpers ----- */
     function sanitizePhone(raw) { return raw.toString().replace(/[^0-9]/g, '').slice(0, 15); }
@@ -508,7 +497,7 @@
       );
     }
 
-    function AdminView({ users, groups, onLogout, addToast, onAddGroup, onDeleteGroup, onUpdateSlot, onUpdateCapacity, onAddStudent, onUpdateUser }) {
+    function AdminView({ users, groups, onLogout, addToast, onAddGroup, onDeleteGroup, onUpdateSlot, onUpdateCapacity, onAddStudent, onUpdateUser, onResetData }) {
       const [search, setSearch] = useState('');
       const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
       const [showAddModal, setShowAddModal] = useState(false);
@@ -551,10 +540,12 @@
                 <p className="text-2xl font-bold text-sage-700">{Object.values(groups).length}</p>
                 <p className="text-[10px] text-sage-400 mt-0.5 font-medium">Clases Totales</p>
               </div>
-              <button onClick={() => setShowAddModal(true)}
-                className="bg-sage-600 rounded-2xl p-3 text-center text-white shadow-lg shadow-sage-200 active:scale-95 transition-all flex flex-col items-center justify-center">
-                <LucideIcon name="Plus" className="w-5 h-5 mb-0.5" />
-                <p className="text-[10px] font-bold">Nueva Clase</p>
+              <button onClick={() => {
+                if (confirm('¿Seguro que quieres borrar TODOS los datos y empezar de cero?')) onResetData();
+              }}
+                className="bg-white/50 border border-red-100 rounded-2xl p-3 text-center text-red-400 active:scale-95 transition-all flex flex-col items-center justify-center">
+                <LucideIcon name="Trash2" className="w-5 h-5 mb-0.5" />
+                <p className="text-[10px] font-bold">Limpiar Todo</p>
               </button>
             </section>
 
@@ -595,7 +586,12 @@
                           <span className="text-sm font-bold text-sage-800">{ct?.name}</span>
                           <span className="text-xs text-sage-500 bg-sage-50 px-2 py-0.5 rounded-lg">{g.time}h</span>
                         </div>
-                        <LucideIcon name="Shield" className="w-4 h-4 text-sage-300" />
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setShowAddModal(true)}
+                            className="p-2 bg-sage-600 rounded-xl text-white shadow-md active:scale-95 transition-all">
+                            <LucideIcon name="Plus" className="w-5 h-5" />
+                          </button>
+                        </div>
                       </div>
                       <div className="flex flex-wrap gap-1.5 mb-2">
                         {g.slots.map((sl, i) => (
@@ -1252,6 +1248,12 @@
         addToast('Reserva cancelada — el hueco vuelve a estar libre', 'info');
       }, [addToast]);
 
+      const handleResetData = useCallback(() => {
+        const seed = generateSeedData();
+        setData(seed);
+        addToast('Base de datos reiniciada', 'info');
+      }, [addToast]);
+
       const isAdmin = currentUser?.role === 'admin';
 
       return (
@@ -1276,6 +1278,7 @@
               onUpdateCapacity={handleUpdateCapacity}
               onAddStudent={handleAddStudent}
               onUpdateUser={handleUpdateUser}
+              onResetData={handleResetData}
             />
           )}
           {currentUser && !isAdmin && (
