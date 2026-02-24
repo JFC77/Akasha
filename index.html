@@ -179,26 +179,37 @@
     const ADMIN_PHONE = '699999999';
 
     const CLASS_TYPES = [
-      { id: 'hatha', name: 'Hatha Suave', icon: 'Leaf', color: 'sage', instructor: 'María López', duration: 60, maxCapacity: 10, description: 'Posturas suaves y respiración consciente.' },
-      { id: 'vinyasa', name: 'Vinyasa Flow', icon: 'Wind', color: 'sage', instructor: 'Carlos Ruiz', duration: 75, maxCapacity: 12, description: 'Secuencias dinámicas sincronizadas con la respiración.' },
-      { id: 'yin', name: 'Yin Yoga', icon: 'Moon', color: 'sage', instructor: 'Elena García', duration: 60, maxCapacity: 8, description: 'Estiramientos profundos y meditación pasiva.' },
-      { id: 'meditacion', name: 'Meditación', icon: 'Sun', color: 'sage', instructor: 'Ana Martín', duration: 45, maxCapacity: 15, description: 'Mindfulness y técnicas de concentración.' },
-      { id: 'ashtanga', name: 'Ashtanga', icon: 'Heart', color: 'terracotta', instructor: 'Pablo Navarro', duration: 90, maxCapacity: 10, description: 'Serie primaria de Ashtanga con ajustes.' },
+      { id: 'hatha_flow', name: 'Hatha Flow', icon: 'Leaf', color: 'sage', duration: 75, maxCapacity: 12, description: 'Clase fluida que combina respiración y movimiento.' },
+      { id: 'mov_funcional', name: 'Mov. Funcional', icon: 'Activity', color: 'sage', duration: 60, maxCapacity: 10, description: 'Movimiento funcional adaptado para adultos mayores.' },
+      { id: 'vinyasa_alta', name: 'Vinyasa (I. Alta)', icon: 'Wind', color: 'sage', duration: 75, maxCapacity: 12, description: 'Secuencias dinámicas y exigentes de Vinyasa.' },
+      { id: 'vinyasa_media', name: 'Vinyasa (I. Media)', icon: 'Cloud', color: 'sage', duration: 75, maxCapacity: 12, description: 'Vinyasa a ritmo moderado y equilibrado.' },
+      { id: 'hatha_suave', name: 'Hatha Suave', icon: 'Thermometer', color: 'sage', duration: 60, maxCapacity: 12, description: 'Clase pausada ideal para la movilidad.' },
+      { id: 'yoga_restaurativo', name: 'Yoga Restaurativo', icon: 'Moon', color: 'sage', duration: 90, maxCapacity: 10, description: 'Relajación profunda con soportes y calma.' },
+      { id: 'sabado_especial', name: '*Clase completa*', icon: 'Sparkles', color: 'terracotta', duration: 150, maxCapacity: 15, description: 'Filosofía, pranayama, asanas y meditación.' },
     ];
 
     const SCHEDULE = [
-      { classId: 'hatha', dayOfWeek: 1, time: '09:00' },
-      { classId: 'vinyasa', dayOfWeek: 1, time: '18:00' },
-      { classId: 'yin', dayOfWeek: 2, time: '10:00' },
-      { classId: 'meditacion', dayOfWeek: 2, time: '19:00' },
-      { classId: 'ashtanga', dayOfWeek: 3, time: '07:30' },
-      { classId: 'hatha', dayOfWeek: 3, time: '17:00' },
-      { classId: 'vinyasa', dayOfWeek: 4, time: '09:00' },
-      { classId: 'yin', dayOfWeek: 4, time: '18:30' },
-      { classId: 'meditacion', dayOfWeek: 5, time: '10:00' },
-      { classId: 'ashtanga', dayOfWeek: 5, time: '17:30' },
-      { classId: 'hatha', dayOfWeek: 6, time: '10:00' },
-      { classId: 'vinyasa', dayOfWeek: 6, time: '12:00' },
+      // Lunes
+      { classId: 'hatha_flow', dayOfWeek: 1, time: '10:15' },
+      { classId: 'mov_funcional', dayOfWeek: 1, time: '11:40' },
+      { classId: 'hatha_flow', dayOfWeek: 1, time: '18:15' },
+      { classId: 'hatha_flow', dayOfWeek: 1, time: '20:00' },
+      // Martes
+      { classId: 'vinyasa_alta', dayOfWeek: 2, time: '19:00' },
+      { classId: 'vinyasa_media', dayOfWeek: 2, time: '20:30' },
+      // Miércoles
+      { classId: 'hatha_flow', dayOfWeek: 3, time: '10:15' },
+      { classId: 'mov_funcional', dayOfWeek: 3, time: '11:40' },
+      { classId: 'hatha_flow', dayOfWeek: 3, time: '18:15' },
+      // Jueves
+      { classId: 'vinyasa_alta', dayOfWeek: 4, time: '19:00' },
+      { classId: 'vinyasa_media', dayOfWeek: 4, time: '20:30' },
+      // Viernes
+      { classId: 'hatha_suave', dayOfWeek: 5, time: '10:15' },
+      { classId: 'yoga_restaurativo', dayOfWeek: 5, time: '18:00' },
+      { classId: 'vinyasa_media', dayOfWeek: 5, time: '19:15' },
+      // Sábado (especial 1er y 3er)
+      { classId: 'sabado_especial', dayOfWeek: 6, time: '10:00' },
     ];
 
     const FAKE_STUDENTS = [];
@@ -233,6 +244,13 @@
         const dow = date.getDay() === 0 ? 7 : date.getDay();
 
         SCHEDULE.filter(s => s.dayOfWeek === dow).forEach(sched => {
+          // Lógica especial para 1er y 3er Sábado
+          if (sched.classId === 'sabado_especial') {
+            const dayOfMonth = date.getDate();
+            const weekNumber = Math.ceil(dayOfMonth / 7);
+            if (weekNumber !== 1 && weekNumber !== 3) return;
+          }
+
           const classType = CLASS_TYPES.find(c => c.id === sched.classId);
           const groupId = `${sched.classId}_${date.toISOString().slice(0, 10)}_${sched.time}`;
 
@@ -416,7 +434,6 @@
               </div>
               <div>
                 <h3 className="font-semibold text-sage-900 text-[15px] leading-tight">{classType.name}</h3>
-                <p className="text-xs text-sage-400 mt-0.5">{classType.instructor}</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5 text-sage-500">
@@ -508,7 +525,7 @@
         .filter(g => g.date === selectedDate.toISOString().slice(0, 10))
         .sort((a, b) => a.time.localeCompare(b.time));
 
-      const getCT = (g) => CLASS_TYPES.find(c => c.id === g.classId) || { name: g.customName || 'Evento', icon: 'Sparkles', color: 'sage', instructor: 'Admin', description: 'Evento especial programado' };
+      const getCT = (g) => CLASS_TYPES.find(c => c.id === g.classId) || { name: g.customName || 'Evento', icon: 'Sparkles', color: 'sage', description: 'Evento especial programado' };
 
       const editingGroup = editingGroupId ? groups[editingGroupId] : null;
       const studentOptions = Object.values(users).filter(u => u.role === 'student');
@@ -816,7 +833,7 @@
       const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
       const [tab, setTab] = useState('clases');
 
-      const getCT = (g) => CLASS_TYPES.find(c => c.id === g.classId) || { name: g.customName || 'Evento', icon: 'Sparkles', color: 'sage', instructor: 'Especial', description: 'Clase especial programada por la escuela.' };
+      const getCT = (g) => CLASS_TYPES.find(c => c.id === g.classId) || { name: g.customName || 'Evento', icon: 'Sparkles', color: 'sage', description: 'Clase especial programada por la escuela.' };
 
       const dayGroups = Object.values(groups)
         .filter(g => g.date === selectedDate.toISOString().slice(0, 10))
