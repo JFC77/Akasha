@@ -540,13 +540,10 @@
                 <p className="text-2xl font-bold text-sage-700">{Object.values(groups).length}</p>
                 <p className="text-[10px] text-sage-400 mt-0.5 font-medium">Clases Totales</p>
               </div>
-              <button onClick={() => {
-                if (confirm('¿Seguro que quieres borrar TODOS los datos y empezar de cero?')) onResetData();
-              }}
-                className="bg-white/50 border border-red-100 rounded-2xl p-3 text-center text-red-400 active:scale-95 transition-all flex flex-col items-center justify-center">
-                <LucideIcon name="Trash2" className="w-5 h-5 mb-0.5" />
-                <p className="text-[10px] font-bold">Limpiar Todo</p>
-              </button>
+              <div className="bg-sage-600 rounded-2xl p-3 text-center text-white shadow-lg shadow-sage-200 active:scale-95 transition-all flex flex-col items-center justify-center">
+                <LucideIcon name="ShieldCheck" className="w-5 h-5 mb-0.5" />
+                <p className="text-[10px] font-bold text-white/80">Modo Admin Activo</p>
+              </div>
             </section>
 
             <section aria-label="Gestor de clases">
@@ -691,12 +688,6 @@
                 <div className="pt-2">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-[10px] font-bold text-sage-500 uppercase">Alumnos Registrados</p>
-                    <button onClick={() => {
-                      if (confirm('¿Seguro que quieres BORRAR TODOS los alumnos y empezar de cero?')) onResetData();
-                    }} className="text-[10px] font-bold text-red-400 hover:text-red-600 flex items-center gap-1 transition-colors">
-                      <LucideIcon name="Trash2" className="w-3 h-3" />
-                      Borrar lista completa
-                    </button>
                   </div>
                   <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
                     {Object.values(users)
