@@ -971,7 +971,9 @@
                 setCloudStatus('Offline 🏠');
               });
             }).catch(err => {
-              setCloudStatus('Error Auth ❌');
+              const msg = err.code === 'auth/operation-not-allowed' ? 'Activa Anónimo' : 'Error Auth';
+              setCloudStatus(`${msg} ❌`);
+              addToast(`Error: ${err.message}`, 'error');
             });
           } catch (err) {
             setCloudStatus('Error conexión ❌');
