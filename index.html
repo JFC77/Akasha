@@ -934,22 +934,24 @@
       // MODO HÍBRIDO: NUBE + LOCAL DE SEGURIDAD
       useEffect(() => {
         let isActive = true;
+        let unsubscribe = null;
+
         const cloudTimeout = setTimeout(() => {
           if (isActive && !isCloudLoaded) {
-            console.log("Usando persistencia local (Nube no configurada)");
+            console.log("Activando persistencia local por timeout");
             const localData = localStorage.getItem('akasha_data');
-            setData(localData ? JSON.parse(localData) : generateSeedData());
+            // Solo cargamos local si no hemos recibido nada de la nube aún
+            setData(prev => (Object.keys(prev.groups || {}).length === 0) ? (localData ? JSON.parse(localData) : generateSeedData()) : prev);
             setIsCloudLoaded(true);
           }
-        }, 3000);
+        }, 4000);
 
         const startSync = async () => {
           try {
             await auth.signInAnonymously();
-            const path = `/artifacts/${window.__app_id || 'akasha'}/public/data/sessions/main`;
-            const docRef = db.doc(path);
+            const docRef = db.collection('yoga').doc('main');
 
-            return docRef.onSnapshot((docSnap) => {
+            unsubscribe = docRef.onSnapshot((docSnap) => {
               if (docSnap.exists) {
                 setData(docSnap.data());
               } else {
@@ -960,20 +962,20 @@
               setIsCloudLoaded(true);
               clearTimeout(cloudTimeout);
             }, (error) => {
-              console.warn("Cloud Sync deshabilitado:", error.message);
+              console.warn("Error Firestore:", error.message);
             });
           } catch (err) {
-            console.warn("Auth deshabilitado:", err.message);
+            console.warn("Error Auth:", err.message);
           }
         };
 
-        const unsubPromise = startSync();
+        startSync();
         return () => {
           isActive = false;
           clearTimeout(cloudTimeout);
-          unsubPromise.then(u => u && u());
+          if (unsubscribe) unsubscribe();
         };
-      }, [addToast, isCloudLoaded]);
+      }, [addToast]);
 
       // GUARDADO DUAL
       useEffect(() => {
@@ -981,8 +983,7 @@
         localStorage.setItem('akasha_data', JSON.stringify(data));
         const syncToCloud = async () => {
           try {
-            const path = `/artifacts/${window.__app_id || 'akasha'}/public/data/sessions/main`;
-            await db.doc(path).update(data);
+            await db.collection('yoga').doc('main').set(data);
           } catch (err) { }
         };
         const timer = setTimeout(syncToCloud, 1000);
