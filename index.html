@@ -940,13 +940,13 @@
 
         const cloudTimeout = setTimeout(() => {
           if (isActive && !isCloudLoaded) {
-            console.log("Activando persistencia local por timeout");
+            console.log("Cargando modo local (Nube lenta)");
             const localData = localStorage.getItem('akasha_data');
             setData(prev => (Object.keys(prev.groups || {}).length === 0) ? (localData ? JSON.parse(localData) : generateSeedData()) : prev);
             setIsCloudLoaded(true);
             setCloudStatus('Local 🏠');
           }
-        }, 3000);
+        }, 8000); // 8 segundos de margen
 
         const startSync = async () => {
           try {
@@ -954,6 +954,8 @@
             auth.signInAnonymously().then(() => {
               if (!isActive) return;
               setCloudStatus('Conectado ☁️');
+              addToast('¡Sincronización activa! ☁️', 'success');
+
               const docRef = db.collection('yoga').doc('main');
               unsubscribe = docRef.onSnapshot((docSnap) => {
                 if (docSnap.exists) {
@@ -966,15 +968,13 @@
                 setIsCloudLoaded(true);
                 clearTimeout(cloudTimeout);
               }, (error) => {
-                console.warn("Error Firestore:", error.message);
                 setCloudStatus('Offline 🏠');
               });
             }).catch(err => {
-              console.warn("Error Auth:", err.message);
               setCloudStatus('Error Auth ❌');
             });
           } catch (err) {
-            console.warn("Error crítico:", err.message);
+            setCloudStatus('Error conexión ❌');
           }
         };
 
@@ -992,10 +992,12 @@
         localStorage.setItem('akasha_data', JSON.stringify(data));
         const syncToCloud = async () => {
           try {
-            await db.collection('yoga').doc('main').set(data);
+            if (auth.currentUser) {
+              await db.collection('yoga').doc('main').set(data);
+            }
           } catch (err) { }
         };
-        const timer = setTimeout(syncToCloud, 1000);
+        const timer = setTimeout(syncToCloud, 1500);
         return () => clearTimeout(timer);
       }, [data, isCloudLoaded]);
 
