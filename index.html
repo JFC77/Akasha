@@ -925,6 +925,8 @@
       const toastIdRef = useRef(0);
       const lockRef = useRef(new Set());
 
+      const [cloudStatus, setCloudStatus] = useState('Conectando...');
+
       const addToast = useCallback((message, type = 'info') => {
         const id = ++toastIdRef.current;
         setToasts(prev => [...prev, { id, message, type }]);
@@ -948,7 +950,9 @@
 
         const startSync = async () => {
           try {
+            setCloudStatus('Autenticando...');
             await auth.signInAnonymously();
+            setCloudStatus('Conectado ☁️');
             const docRef = db.collection('yoga').doc('main');
 
             unsubscribe = docRef.onSnapshot((docSnap) => {
@@ -1017,6 +1021,8 @@
         setCurrentUser(null);
         addToast('Sesión cerrada', 'info');
       }, [addToast]);
+
+      const forceRefresh = () => { window.location.reload(); };
 
       const handleAddStudent = useCallback((name, phone) => {
         const clean = sanitizePhone(phone);
@@ -1223,6 +1229,12 @@
 
       return (
         <>
+          <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-3 py-1.5 bg-white/10 backdrop-blur-md rounded-full border border-white/20 text-[10px] text-sage-400 font-medium">
+            <div className={`w-1.5 h-1.5 rounded-full ${cloudStatus.includes('☁️') ? 'bg-indigo-400 animate-pulse' : 'bg-sage-300'}`}></div>
+            {cloudStatus}
+            <button onClick={forceRefresh} className="ml-2 hover:text-indigo-400 underline underline-offset-2">Actualizar</button>
+          </div>
+
           <Toast toasts={toasts} onDismiss={dismissToast} />
           {!currentUser && <LoginScreen onLogin={handleLogin} />}
           {currentUser && isAdmin && (
