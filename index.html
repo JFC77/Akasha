@@ -253,41 +253,20 @@
       const updatedGroups = { ...groups };
       const bonoUsers = Object.values(users).filter(u => u.bonos && u.bonos.length > 0 && !u.isBlocked);
 
-      console.log('[applyBonos] bonoUsers count:', bonoUsers.length);
-      if (bonoUsers.length > 0) {
-        console.log('[applyBonos] bonoUsers:', bonoUsers.map(u => ({ name: u.name, phone: u.phone, bonos: u.bonos, isBlocked: u.isBlocked })));
-      }
-
-      // Log sample group structure
-      const sampleGroupKey = Object.keys(updatedGroups)[0];
-      if (sampleGroupKey) {
-        const sg = updatedGroups[sampleGroupKey];
-        console.log('[applyBonos] Sample group:', { id: sg.id, classId: sg.classId, date: sg.date, time: sg.time, slotsCount: sg.slots?.length });
-      }
-
       bonoUsers.forEach(user => {
         user.bonos.forEach(bono => {
-          let matchCount = 0;
           Object.keys(updatedGroups).forEach(gId => {
             const g = updatedGroups[gId];
             const gDow = dowFromDateStr(g.date);
 
-            // Log first 3 comparisons for debugging
-            if (matchCount === 0 && g.classId === bono.classId) {
-              console.log(`[applyBonos] classId match: ${g.id}, gDow=${gDow}(${typeof gDow}) vs bono.dow=${bono.dayOfWeek}(${typeof bono.dayOfWeek}), gTime="${g.time}"(${typeof g.time}) vs bonoTime="${bono.time}"(${typeof bono.time})`);
-            }
-
             if (g.classId === bono.classId && gDow === bono.dayOfWeek && g.time === bono.time) {
-              matchCount++;
-              if (g.slots.some(s => s.userId === user.phone)) {
-                console.log(`[applyBonos] SKIP (already in): ${g.id}`);
+              // Check if user already has OR HAD a slot in this group
+              if (g.slots.some(s => s.userId === user.phone || s.originalUserId === user.phone)) {
                 return;
               }
               const freeIdx = g.slots.findIndex(s => s.status === 'released');
-              if (freeIdx === -1) {
-                console.log(`[applyBonos] SKIP (full): ${g.id}`);
-                return;
-              }
+              if (freeIdx === -1) return; // class full
+
               const newSlots = [...g.slots];
               newSlots[freeIdx] = {
                 ...newSlots[freeIdx],
@@ -297,10 +276,8 @@
                 originalUserId: user.phone
               };
               updatedGroups[gId] = { ...g, slots: newSlots };
-              console.log(`[applyBonos] ASSIGNED: ${g.id} slot ${freeIdx}`);
             }
           });
-          console.log(`[applyBonos] Bono ${bono.classId}/${bono.dayOfWeek}/${bono.time} => ${matchCount} matches`);
         });
       });
       return updatedGroups;
@@ -1351,64 +1328,26 @@
 
       /* --- Handle Bono Updates --- */
       const handleUpdateBonos = useCallback((phone, newBonos) => {
-        console.log('=== handleUpdateBonos START ===');
-        console.log('Phone:', phone, 'New bonos:', JSON.stringify(newBonos));
         setData(prev => {
-          const user = prev.users[phone];
-          console.log('User found:', user?.name, 'Old bonos:', JSON.stringify(user?.bonos));
           const updatedUsers = { ...prev.users, [phone]: { ...prev.users[phone], bonos: newBonos } };
-
-          // Strip existing bono slots for this user
           const strippedGroups = {};
-          let strippedCount = 0;
           Object.keys(prev.groups).forEach(gId => {
             const g = prev.groups[gId];
-            const cleanedSlots = g.slots.map(s => {
-              if (s.userId === phone && s.status === 'bono') {
-                strippedCount++;
-                return { ...s, userId: null, userName: null, status: 'released', originalUserId: null };
-              }
-              return s;
-            });
+            const cleanedSlots = g.slots.map(s =>
+              s.userId === phone && s.status === 'bono'
+                ? { ...s, userId: null, userName: null, status: 'released', originalUserId: null }
+                : s
+            );
             strippedGroups[gId] = { ...g, slots: cleanedSlots };
           });
-          console.log('Stripped', strippedCount, 'existing bono slots');
-
-          // Apply bonos
           const finalGroups = applyBonosToGroups(updatedUsers, strippedGroups);
-
-          // Count how many bono slots were created
-          let bonoCount = 0;
-          Object.values(finalGroups).forEach(g => {
-            g.slots.forEach(s => {
-              if (s.userId === phone && s.status === 'bono') bonoCount++;
-            });
-          });
-          console.log('After applyBonos: user has', bonoCount, 'bono slots across all groups');
-          console.log('Total groups:', Object.keys(finalGroups).length);
-
-          // Sample: show first matching group
-          if (newBonos.length > 0) {
-            const firstBono = newBonos[0];
-            console.log('Looking for groups matching first bono:', JSON.stringify(firstBono));
-            Object.values(finalGroups).forEach(g => {
-              const gDow = dowFromDateStr(g.date);
-              if (g.classId === firstBono.classId && gDow === firstBono.dayOfWeek && g.time === firstBono.time) {
-                const userSlot = g.slots.find(s => s.userId === phone);
-                console.log(`  MATCH: ${g.id} date=${g.date} dow=${gDow} time=${g.time} userSlot=${userSlot ? userSlot.status : 'NONE'}`);
-              }
-            });
-          }
-
           const newData = { users: updatedUsers, groups: finalGroups };
           try {
             if (auth.currentUser) {
               skipNextSnapshotRef.current = true;
               db.collection('yoga').doc('main').set(newData);
-              console.log('Saved to Firebase directly');
             }
-          } catch (e) { console.error('Firebase save error:', e); }
-          console.log('=== handleUpdateBonos END ===');
+          } catch (e) { }
           return newData;
         });
         addToast(`Bonos actualizados (${newBonos.length} clases/semana)`, 'success');
@@ -1441,7 +1380,7 @@
             // Añadir: buscamos el primer hueco libre
             const idx = updatedSlots.findIndex(s => s.status === 'released');
             if (idx !== -1) {
-              updatedSlots[idx] = { ...updatedSlots[idx], userId: user.phone, userName: user.name, status: 'confirmed' };
+              updatedSlots[idx] = { ...updatedSlots[idx], userId: user.phone, userName: user.name, status: 'confirmed', originalUserId: user.phone };
             }
           } else {
             // Quitar: vaciamos la posición actual
