@@ -1489,16 +1489,38 @@
 
       const handleDeleteGroup = useCallback((groupId) => {
         setData(prev => {
+          const group = prev.groups[groupId];
+          if (!group) return prev;
+
           const newGroups = { ...prev.groups };
-          delete newGroups[groupId];
-          const newData = { ...prev, groups: newGroups };
+          const newConfig = { ...prev.config } || { schedule: SCHEDULE };
+          const newSchedule = [...(newConfig.schedule || [])];
+          const gDow = dowFromDateStr(group.date);
+
+          // 1. Quitar del horario semanal
+          const filteredSchedule = newSchedule.filter(s =>
+            !(s.classId === group.classId && s.time === group.time && s.dayOfWeek === gDow)
+          );
+          newConfig.schedule = filteredSchedule;
+
+          // 2. Eliminar este y futuros grupos iguales
+          Object.keys(newGroups).forEach(id => {
+            const g = newGroups[id];
+            if (g.classId === group.classId && g.time === group.time && g.date >= group.date) {
+              if (dowFromDateStr(g.date) === gDow) {
+                delete newGroups[id];
+              }
+            }
+          });
+
+          const newData = { ...prev, groups: newGroups, config: newConfig };
           if (auth.currentUser) {
             skipNextSnapshotRef.current = true;
-            db.collection('yoga').doc('main').set(newData).catch(() => { });
+            db.collection('yoga').doc('main').set(newData).catch((e) => console.error("Sync error", e));
           }
           return newData;
         });
-        addToast('Evento eliminado correctamente', 'info');
+        addToast('Clase eliminada del horario y semanas futuras', 'info');
       }, [addToast]);
 
       const handleRelease = useCallback((groupId, slotIndex) => {
