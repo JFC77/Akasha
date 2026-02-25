@@ -322,11 +322,12 @@
           const groupId = `${sched.classId}_${localDateStr(date)}_${sched.time}`;
 
           const slots = [];
-          for (let i = 0; i < (classType?.maxCapacity || 12); i++) {
+          const cap = sched.capacity || classType?.maxCapacity || 12;
+          for (let i = 0; i < cap; i++) {
             slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
           }
 
-          groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots, releasedBonos: [] };
+          groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots, customName: sched.customName, releasedBonos: [] };
         });
       }
 
@@ -373,10 +374,11 @@
           if (!groups[groupId]) {
             const classType = CLASS_TYPES.find(c => c.id === sched.classId);
             const slots = [];
-            for (let i = 0; i < (classType?.maxCapacity || 12); i++) {
+            const cap = sched.capacity || classType?.maxCapacity || 12;
+            for (let i = 0; i < cap; i++) {
               slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
             }
-            groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots, releasedBonos: [] };
+            groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots, customName: sched.customName, releasedBonos: [] };
             changed = true;
           }
         });
@@ -1400,7 +1402,7 @@
             // Check if match already in schedule
             const exists = newSchedule.some(s => s.classId === classId && s.dayOfWeek === dow && s.time === time);
             if (!exists) {
-              newSchedule.push({ classId, dayOfWeek: dow, time });
+              newSchedule.push({ classId, dayOfWeek: dow, time, customName, capacity });
             }
           }
 
