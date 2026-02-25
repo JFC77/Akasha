@@ -249,9 +249,10 @@
     }
 
     /* --- BONO ENGINE: apply bonos to groups --- */
-    function applyBonosToGroups(users, groups) {
+    function applyBonosToGroups(users, groups, schedule) {
       const updatedGroups = { ...groups };
       const bonoUsers = Object.values(users).filter(u => u.bonos && u.bonos.length > 0 && !u.isBlocked);
+      const currentSchedule = schedule || SCHEDULE;
 
       bonoUsers.forEach(user => {
         user.bonos.forEach(bono => {
@@ -292,8 +293,9 @@
     const DAYS_AHEAD = 60; // 2 months of classes
 
     /* ----- seed generation ----- */
-    function generateSeedData(existingUsers) {
+    function generateSeedData(existingUsers, existingConfig) {
       const users = existingUsers ? { ...existingUsers } : {};
+      const config = existingConfig || { schedule: SCHEDULE };
       if (!users[ADMIN_PHONE]) {
         users[ADMIN_PHONE] = { phone: ADMIN_PHONE, name: 'Administración', role: 'admin', registeredAt: Date.now() };
       }
@@ -302,12 +304,14 @@
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
+      const currentSchedule = config.schedule || SCHEDULE;
+
       for (let dayOffset = 0; dayOffset < DAYS_AHEAD; dayOffset++) {
         const date = new Date(today);
         date.setDate(today.getDate() + dayOffset);
         const dow = date.getDay() === 0 ? 7 : date.getDay();
 
-        SCHEDULE.filter(s => s.dayOfWeek === dow).forEach(sched => {
+        currentSchedule.filter(s => s.dayOfWeek === dow).forEach(sched => {
           if (sched.classId === 'sabado_especial') {
             const dayOfMonth = date.getDate();
             const weekNumber = Math.ceil(dayOfMonth / 7);
@@ -318,7 +322,7 @@
           const groupId = `${sched.classId}_${localDateStr(date)}_${sched.time}`;
 
           const slots = [];
-          for (let i = 0; i < classType.maxCapacity; i++) {
+          for (let i = 0; i < (classType?.maxCapacity || 12); i++) {
             slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
           }
 
@@ -326,9 +330,8 @@
         });
       }
 
-      // Apply bonos after creating empty groups
-      const finalGroups = applyBonosToGroups(users, groups);
-      return { users, groups: finalGroups };
+      const finalGroups = applyBonosToGroups(users, groups, currentSchedule);
+      return { users, groups: finalGroups, config };
     }
 
     /* ----- auto-generate future groups (preserves existing) ----- */
@@ -336,30 +339,30 @@
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       let changed = false;
-      const groups = { ...existingData.groups };
+      const users = existingData.users || {};
+      const groups = { ...(existingData.groups || {}) };
+      const config = existingData.config || { schedule: SCHEDULE };
+      const currentSchedule = config.schedule || SCHEDULE;
 
       // CLEANUP: remove groups with wrong day-of-week (from timezone bug)
       Object.keys(groups).forEach(gId => {
         const g = groups[gId];
-        // Only clean schedule-generated groups (not custom events)
-        const schedEntry = SCHEDULE.find(s => s.classId === g.classId && s.time === g.time);
+        const schedEntry = currentSchedule.find(s => s.classId === g.classId && s.time === g.time);
         if (schedEntry) {
           const gDow = dowFromDateStr(g.date);
           if (gDow !== schedEntry.dayOfWeek) {
-            // This group was created on the wrong day — remove it
             delete groups[gId];
             changed = true;
           }
         }
       });
 
-      // Generate missing future groups
       for (let dayOffset = 0; dayOffset < DAYS_AHEAD; dayOffset++) {
         const date = new Date(today);
         date.setDate(today.getDate() + dayOffset);
         const dow = date.getDay() === 0 ? 7 : date.getDay();
 
-        SCHEDULE.filter(s => s.dayOfWeek === dow).forEach(sched => {
+        currentSchedule.filter(s => s.dayOfWeek === dow).forEach(sched => {
           if (sched.classId === 'sabado_especial') {
             const dayOfMonth = date.getDate();
             const weekNumber = Math.ceil(dayOfMonth / 7);
@@ -370,7 +373,7 @@
           if (!groups[groupId]) {
             const classType = CLASS_TYPES.find(c => c.id === sched.classId);
             const slots = [];
-            for (let i = 0; i < classType.maxCapacity; i++) {
+            for (let i = 0; i < (classType?.maxCapacity || 12); i++) {
               slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
             }
             groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots, releasedBonos: [] };
@@ -379,11 +382,10 @@
         });
       }
 
-      if (!changed) return existingData;
+      if (!changed && existingData.config) return existingData;
 
-      // Apply bonos to all groups (new and existing)
-      const finalGroups = applyBonosToGroups(existingData.users, groups);
-      return { ...existingData, groups: finalGroups };
+      const finalGroups = applyBonosToGroups(users, groups, currentSchedule);
+      return { users, groups: finalGroups, config };
     }
 
     /* =============================================================
@@ -707,6 +709,11 @@
                       }
                     }} />
                 </div>
+                <button onClick={() => setShowAddModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-sage-600 text-white rounded-xl shadow-md active:scale-95 transition-all text-xs font-bold">
+                  <LucideIcon name="Plus" className="w-4 h-4" />
+                  NUEVA CLASE
+                </button>
               </div>
               <HorizontalCalendar selectedDate={selectedDate} onSelect={setSelectedDate} />
 
@@ -729,9 +736,9 @@
                           <span className="text-xs text-sage-500 bg-sage-50 px-2 py-0.5 rounded-lg">{g.time}h</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <button onClick={() => setShowAddModal(true)}
-                            className="p-2 bg-sage-600 rounded-xl text-white shadow-md active:scale-95 transition-all">
-                            <LucideIcon name="Plus" className="w-5 h-5" />
+                          <button onClick={() => setEditingGroupId(g.id)}
+                            className="p-1.5 text-sage-400 hover:text-sage-600 transition-colors">
+                            <LucideIcon name="Settings" className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
@@ -765,7 +772,8 @@
                   localDateStr(selectedDate),
                   formData.get('time'),
                   parseInt(formData.get('capacity')),
-                  formData.get('customName')
+                  formData.get('customName'),
+                  formData.get('frequency') === 'weekly'
                 );
                 setShowAddModal(false);
               }} className="space-y-4">
@@ -786,6 +794,23 @@
                   <input name="customName" type="text" placeholder="Ej: Taller de Meditación" className="w-full p-3 rounded-2xl bg-sage-50 border-none text-sm font-medium" />
                 </div>
 
+                <div className="bg-sage-50/50 p-4 rounded-3xl border border-sage-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <LucideIcon name="Clock" className="w-4 h-4 text-sage-400" />
+                    <span className="text-xs font-bold text-sage-600">REPETICIÓN</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input name="frequency" type="radio" value="once" defaultChecked className="sr-only peer" />
+                      <div className="px-3 py-1.5 rounded-xl text-[10px] font-bold peer-checked:bg-white peer-checked:shadow-sm peer-checked:text-sage-700 bg-transparent text-sage-400 transition-all">PUNTUAL</div>
+                    </label>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input name="frequency" type="radio" value="weekly" className="sr-only peer" />
+                      <div className="px-3 py-1.5 rounded-xl text-[10px] font-bold peer-checked:bg-white peer-checked:shadow-sm peer-checked:text-sage-700 bg-transparent text-sage-400 transition-all">SEMANAL</div>
+                    </label>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-sage-500 uppercase mb-2">Hora (HH:MM)</label>
@@ -796,8 +821,13 @@
                     <input name="capacity" type="number" defaultValue="12" min="1" max="30" className="w-full p-3 rounded-2xl bg-sage-50 border-none text-sm font-medium" />
                   </div>
                 </div>
-                <button type="submit" className="w-full py-4 bg-sage-600 text-white rounded-2xl font-bold shadow-lg shadow-sage-100 active:scale-95 transition-all">
-                  Crear Clase
+                <div className="bg-sage-50 p-3 rounded-2xl">
+                  <p className="text-[10px] text-sage-400 text-center font-medium italic">
+                    * La clase se creará para el día {getDayName(selectedDate)} {formatDate(selectedDate)}
+                  </p>
+                </div>
+                <button type="submit" className="w-full py-4 bg-sage-600 text-white rounded-2xl font-bold shadow-lg shadow-sage-600/20 active:scale-95 transition-all">
+                  Confirmar y Crear
                 </button>
               </form>
             </Modal>
@@ -1164,7 +1194,7 @@
       const [currentUser, setCurrentUser] = useState(() => {
         try { const s = localStorage.getItem('akasha_user'); return s ? JSON.parse(s) : null; } catch { return null; }
       });
-      const [data, setData] = useState({ users: {}, groups: {} });
+      const [data, setData] = useState({ users: {}, groups: {}, config: { schedule: SCHEDULE } });
       const [isCloudLoaded, setIsCloudLoaded] = useState(false);
       const [toasts, setToasts] = useState([]);
       const toastIdRef = useRef(0);
@@ -1344,7 +1374,7 @@
             );
             strippedGroups[gId] = { ...g, slots: cleanedSlots };
           });
-          const finalGroups = applyBonosToGroups(updatedUsers, strippedGroups);
+          const finalGroups = applyBonosToGroups(updatedUsers, strippedGroups, prev.config?.schedule);
           const newData = { users: updatedUsers, groups: finalGroups };
           try {
             if (auth.currentUser) {
@@ -1358,21 +1388,37 @@
       }, [addToast]);
 
       /* --- Admin Advanced Actions --- */
-      const handleAddGroup = useCallback((classId, date, time, capacity, customName) => {
+      const handleAddGroup = useCallback((classId, date, time, capacity, customName, isWeekly) => {
         setData(prev => {
           const suffix = customName ? `_${customName.replace(/\s+/g, '')}` : '';
           const groupId = `${classId}${suffix}_${date}_${time.replace(':', '')}`;
+          const currentConfig = prev.config || { schedule: SCHEDULE };
+          let newSchedule = [...(currentConfig.schedule || [])];
+
+          if (isWeekly) {
+            const dow = dowFromDateStr(date);
+            // Check if match already in schedule
+            const exists = newSchedule.some(s => s.classId === classId && s.dayOfWeek === dow && s.time === time);
+            if (!exists) {
+              newSchedule.push({ classId, dayOfWeek: dow, time });
+            }
+          }
+
           if (prev.groups[groupId]) {
+            if (isWeekly) return { ...prev, config: { ...currentConfig, schedule: newSchedule } };
             setTimeout(() => addToast('Ya existe una clase a esa hora', 'info'), 10);
             return prev;
           }
+
           const slots = Array.from({ length: capacity }, (_, i) => ({
             slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null
           }));
-          const newGroups = { ...prev.groups, [groupId]: { id: groupId, classId, date, time, slots, customName } };
-          return { ...prev, groups: newGroups };
+          const newGroups = { ...prev.groups, [groupId]: { id: groupId, classId, date, time, slots, customName, releasedBonos: [] } };
+
+          const result = { ...prev, groups: newGroups, config: { ...currentConfig, schedule: newSchedule } };
+          return ensureFutureGroups(result); // Trigger auto-gen if needed
         });
-        addToast('Clase creada correctamente', 'success');
+        addToast(isWeekly ? 'Clase añadida al horario' : 'Clase creada correctamente', 'success');
       }, [addToast]);
 
       const handleAdminUpdateSlot = useCallback((groupId, slotIndex, user) => {
@@ -1580,9 +1626,10 @@
       }, [addToast]);
 
       const handleResetData = useCallback(() => {
-        const seed = generateSeedData(data.users);
+        if (!confirm('¿Seguro? Esto borrará todas las reservas y devolverá el horario a su estado original.')) return;
+        const seed = generateSeedData(data.users, { schedule: SCHEDULE });
         setData(seed);
-        addToast('Base de datos reiniciada con bonos aplicados', 'info');
+        addToast('Horario y reservas reiniciados', 'info');
       }, [addToast, data.users]);
 
       const isAdmin = currentUser?.role === 'admin';
