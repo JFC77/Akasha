@@ -260,10 +260,12 @@
             const gDow = dowFromDateStr(g.date);
 
             if (g.classId === bono.classId && gDow === bono.dayOfWeek && g.time === bono.time) {
-              // Check if user already has OR HAD a slot in this group
-              if (g.slots.some(s => s.userId === user.phone || s.originalUserId === user.phone)) {
-                return;
-              }
+              // 1. Check if user already in
+              if (g.slots.some(s => s.userId === user.phone)) return;
+
+              // 2. Check if user HAS CANCELLED this bono for this specific date
+              if (g.releasedBonos && g.releasedBonos.includes(user.phone)) return;
+
               const freeIdx = g.slots.findIndex(s => s.status === 'released');
               if (freeIdx === -1) return; // class full
 
@@ -316,7 +318,7 @@
             slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
           }
 
-          groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots };
+          groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots, releasedBonos: [] };
         });
       }
 
@@ -367,7 +369,7 @@
             for (let i = 0; i < classType.maxCapacity; i++) {
               slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
             }
-            groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots };
+            groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots, releasedBonos: [] };
             changed = true;
           }
         });
@@ -1431,9 +1433,13 @@
           const group = prev.groups[groupId];
           if (!group) return prev;
 
+          const slot = group.slots[slotIndex];
+          const isBonoSlot = slot.status === 'bono';
+          const releasedUserId = slot.userId;
+
           // Marcamos como libre y compactamos
           const updatedSlots = group.slots.map((s, i) =>
-            i === slotIndex ? { ...s, status: 'released', userId: null, userName: null } : s
+            i === slotIndex ? { ...s, status: 'released', userId: null, userName: null, originalUserId: null } : s
           );
 
           const occupied = updatedSlots.filter(s => s.status !== 'released');
@@ -1443,7 +1449,13 @@
             return { slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null };
           });
 
-          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted } } };
+          // Guardamos memoria de la liberación del bono
+          const releasedBonos = [...(group.releasedBonos || [])];
+          if (isBonoSlot && releasedUserId && !releasedBonos.includes(releasedUserId)) {
+            releasedBonos.push(releasedUserId);
+          }
+
+          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted, releasedBonos } } };
         });
         addToast('Plaza liberada — otro yogui podrá disfrutarla 🙏', 'success');
       }, [addToast]);
@@ -1526,8 +1538,12 @@
           const group = prev.groups[groupId];
           if (!group) return prev;
 
+          const slot = group.slots[slotIndex];
+          const isBonoSlot = slot.status === 'bono';
+          const releasedUserId = slot.userId;
+
           const updatedSlots = group.slots.map((s, i) =>
-            i === slotIndex ? { ...s, status: 'released', userId: null, userName: null } : s
+            i === slotIndex ? { ...s, status: 'released', userId: null, userName: null, originalUserId: null } : s
           );
 
           const occupied = updatedSlots.filter(s => s.status !== 'released');
@@ -1537,7 +1553,13 @@
             return { slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null };
           });
 
-          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted } } };
+          // Guardamos memoria de la liberación del bono
+          const releasedBonos = [...(group.releasedBonos || [])];
+          if (isBonoSlot && releasedUserId && !releasedBonos.includes(releasedUserId)) {
+            releasedBonos.push(releasedUserId);
+          }
+
+          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted, releasedBonos } } };
         });
         addToast('Reserva cancelada — el hueco vuelve a estar libre', 'info');
       }, [addToast]);
