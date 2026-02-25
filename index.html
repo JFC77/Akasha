@@ -1437,7 +1437,6 @@
           const isBonoSlot = slot.status === 'bono';
           const releasedUserId = slot.userId;
 
-          // Marcamos como libre y compactamos
           const updatedSlots = group.slots.map((s, i) =>
             i === slotIndex ? { ...s, status: 'released', userId: null, userName: null, originalUserId: null } : s
           );
@@ -1449,13 +1448,17 @@
             return { slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null };
           });
 
-          // Guardamos memoria de la liberación del bono
           const releasedBonos = [...(group.releasedBonos || [])];
           if (isBonoSlot && releasedUserId && !releasedBonos.includes(releasedUserId)) {
             releasedBonos.push(releasedUserId);
           }
 
-          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted, releasedBonos } } };
+          const newData = { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted, releasedBonos } } };
+          if (auth.currentUser) {
+            skipNextSnapshotRef.current = true;
+            db.collection('yoga').doc('main').set(newData).catch(() => { });
+          }
+          return newData;
         });
         addToast('Plaza liberada — otro yogui podrá disfrutarla 🙏', 'success');
       }, [addToast]);
@@ -1528,7 +1531,12 @@
           });
 
           lockRef.current.delete(lockKey);
-          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted } } };
+          const newData = { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted } } };
+          if (auth.currentUser) {
+            skipNextSnapshotRef.current = true;
+            db.collection('yoga').doc('main').set(newData).catch(() => { });
+          }
+          return newData;
         });
         addToast('¡Reserva confirmada! Nos vemos en la esterilla 🧘', 'success');
       }, [currentUser, addToast]);
@@ -1559,7 +1567,12 @@
             releasedBonos.push(releasedUserId);
           }
 
-          return { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted, releasedBonos } } };
+          const newData = { ...prev, groups: { ...prev.groups, [groupId]: { ...group, slots: compacted, releasedBonos } } };
+          if (auth.currentUser) {
+            skipNextSnapshotRef.current = true;
+            db.collection('yoga').doc('main').set(newData).catch(() => { });
+          }
+          return newData;
         });
         addToast('Reserva cancelada — el hueco vuelve a estar libre', 'info');
       }, [addToast]);
