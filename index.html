@@ -273,6 +273,8 @@
       return updatedGroups;
     }
 
+    const DAYS_AHEAD = 60; // 2 months of classes
+
     /* ----- seed generation ----- */
     function generateSeedData(existingUsers) {
       const users = existingUsers ? { ...existingUsers } : {};
@@ -284,7 +286,7 @@
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
+      for (let dayOffset = 0; dayOffset < DAYS_AHEAD; dayOffset++) {
         const date = new Date(today);
         date.setDate(today.getDate() + dayOffset);
         const dow = date.getDay() === 0 ? 7 : date.getDay();
@@ -311,6 +313,46 @@
       // Apply bonos after creating empty groups
       const finalGroups = applyBonosToGroups(users, groups);
       return { users, groups: finalGroups };
+    }
+
+    /* ----- auto-generate future groups (preserves existing) ----- */
+    function ensureFutureGroups(existingData) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      let newGroupsAdded = 0;
+      const groups = { ...existingData.groups };
+
+      for (let dayOffset = 0; dayOffset < DAYS_AHEAD; dayOffset++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() + dayOffset);
+        const dow = date.getDay() === 0 ? 7 : date.getDay();
+
+        SCHEDULE.filter(s => s.dayOfWeek === dow).forEach(sched => {
+          if (sched.classId === 'sabado_especial') {
+            const dayOfMonth = date.getDate();
+            const weekNumber = Math.ceil(dayOfMonth / 7);
+            if (weekNumber !== 1 && weekNumber !== 3) return;
+          }
+
+          const groupId = `${sched.classId}_${date.toISOString().slice(0, 10)}_${sched.time}`;
+          // Only create if it doesn't exist yet
+          if (!groups[groupId]) {
+            const classType = CLASS_TYPES.find(c => c.id === sched.classId);
+            const slots = [];
+            for (let i = 0; i < classType.maxCapacity; i++) {
+              slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
+            }
+            groups[groupId] = { id: groupId, classId: sched.classId, date: date.toISOString().slice(0, 10), time: sched.time, slots };
+            newGroupsAdded++;
+          }
+        });
+      }
+
+      if (newGroupsAdded === 0) return existingData; // nothing to change
+
+      // Apply bonos to newly created groups
+      const finalGroups = applyBonosToGroups(existingData.users, groups);
+      return { ...existingData, groups: finalGroups };
     }
 
     /* =============================================================
@@ -1114,7 +1156,13 @@
           if (isActive && !isCloudLoaded) {
             console.log("Cargando modo local (Nube lenta)");
             const localData = localStorage.getItem('akasha_data');
-            setData(prev => (Object.keys(prev.groups || {}).length === 0) ? (localData ? JSON.parse(localData) : generateSeedData()) : prev);
+            setData(prev => {
+              if (Object.keys(prev.groups || {}).length === 0) {
+                const raw = localData ? JSON.parse(localData) : generateSeedData();
+                return ensureFutureGroups(raw);
+              }
+              return prev;
+            });
             setIsCloudLoaded(true);
             setCloudStatus('Local 🏠');
           }
@@ -1131,7 +1179,14 @@
               const docRef = db.collection('yoga').doc('main');
               unsubscribe = docRef.onSnapshot((docSnap) => {
                 if (docSnap.exists) {
-                  setData(docSnap.data());
+                  const cloudData = docSnap.data();
+                  // Auto-generate future groups if needed
+                  const expanded = ensureFutureGroups(cloudData);
+                  setData(expanded);
+                  // If new groups were added, save back to cloud
+                  if (Object.keys(expanded.groups).length > Object.keys(cloudData.groups).length) {
+                    docRef.set(expanded);
+                  }
                 } else {
                   const seed = generateSeedData();
                   docRef.set(seed);
