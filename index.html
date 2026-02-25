@@ -245,18 +245,41 @@
       const updatedGroups = { ...groups };
       const bonoUsers = Object.values(users).filter(u => u.bonos && u.bonos.length > 0 && !u.isBlocked);
 
+      console.log('[applyBonos] bonoUsers count:', bonoUsers.length);
+      if (bonoUsers.length > 0) {
+        console.log('[applyBonos] bonoUsers:', bonoUsers.map(u => ({ name: u.name, phone: u.phone, bonos: u.bonos, isBlocked: u.isBlocked })));
+      }
+
+      // Log sample group structure
+      const sampleGroupKey = Object.keys(updatedGroups)[0];
+      if (sampleGroupKey) {
+        const sg = updatedGroups[sampleGroupKey];
+        console.log('[applyBonos] Sample group:', { id: sg.id, classId: sg.classId, date: sg.date, time: sg.time, slotsCount: sg.slots?.length });
+      }
+
       bonoUsers.forEach(user => {
         user.bonos.forEach(bono => {
-          // Find all matching groups
+          let matchCount = 0;
           Object.keys(updatedGroups).forEach(gId => {
             const g = updatedGroups[gId];
             const gDow = dowFromDateStr(g.date);
+
+            // Log first 3 comparisons for debugging
+            if (matchCount === 0 && g.classId === bono.classId) {
+              console.log(`[applyBonos] classId match: ${g.id}, gDow=${gDow}(${typeof gDow}) vs bono.dow=${bono.dayOfWeek}(${typeof bono.dayOfWeek}), gTime="${g.time}"(${typeof g.time}) vs bonoTime="${bono.time}"(${typeof bono.time})`);
+            }
+
             if (g.classId === bono.classId && gDow === bono.dayOfWeek && g.time === bono.time) {
-              // Check if user already has a slot in this group
-              if (g.slots.some(s => s.userId === user.phone)) return;
-              // Find first free slot
+              matchCount++;
+              if (g.slots.some(s => s.userId === user.phone)) {
+                console.log(`[applyBonos] SKIP (already in): ${g.id}`);
+                return;
+              }
               const freeIdx = g.slots.findIndex(s => s.status === 'released');
-              if (freeIdx === -1) return; // class full
+              if (freeIdx === -1) {
+                console.log(`[applyBonos] SKIP (full): ${g.id}`);
+                return;
+              }
               const newSlots = [...g.slots];
               newSlots[freeIdx] = {
                 ...newSlots[freeIdx],
@@ -266,8 +289,10 @@
                 originalUserId: user.phone
               };
               updatedGroups[gId] = { ...g, slots: newSlots };
+              console.log(`[applyBonos] ASSIGNED: ${g.id} slot ${freeIdx}`);
             }
           });
+          console.log(`[applyBonos] Bono ${bono.classId}/${bono.dayOfWeek}/${bono.time} => ${matchCount} matches`);
         });
       });
       return updatedGroups;
