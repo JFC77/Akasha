@@ -260,14 +260,18 @@
             const gDow = dowFromDateStr(g.date);
 
             if (g.classId === bono.classId && gDow === bono.dayOfWeek && g.time === bono.time) {
-              // 1. Check if user already in
+              // 1. Ya está en la clase?
               if (g.slots.some(s => s.userId === user.phone)) return;
 
-              // 2. Check if user HAS CANCELLED this bono for this specific date
-              if (g.releasedBonos && g.releasedBonos.includes(user.phone)) return;
+              // 2. Comprobamos MEMORIA de cancelaciones (muy importante)
+              const memory = g.releasedBonos || [];
+              if (memory.includes(user.phone)) {
+                // Si el alumno canceló explícitamente, NO lo volvemos a meter
+                return;
+              }
 
               const freeIdx = g.slots.findIndex(s => s.status === 'released');
-              if (freeIdx === -1) return; // class full
+              if (freeIdx === -1) return; // clase llena
 
               const newSlots = [...g.slots];
               newSlots[freeIdx] = {
@@ -277,7 +281,7 @@
                 status: 'bono',
                 originalUserId: user.phone
               };
-              updatedGroups[gId] = { ...g, slots: newSlots };
+              updatedGroups[gId] = { ...g, slots: newSlots, releasedBonos: memory };
             }
           });
         });
@@ -1206,25 +1210,32 @@
 
               const docRef = db.collection('yoga').doc('main');
               unsubscribe = docRef.onSnapshot((docSnap) => {
-                // Skip snapshot if we just wrote locally (prevent overwrite)
+                // Ignore local echo (our own recently written data)
+                if (docSnap.metadata.hasPendingWrites) return;
+
+                // Explicit skip flag (manual backup)
                 if (skipNextSnapshotRef.current) {
                   skipNextSnapshotRef.current = false;
                   setIsCloudLoaded(true);
                   clearTimeout(cloudTimeout);
                   return;
                 }
+
                 if (docSnap.exists) {
                   const cloudData = docSnap.data();
+                  // Check if this incoming data is actually newer/different
                   const expanded = ensureFutureGroups(cloudData);
                   setData(expanded);
-                  if (Object.keys(expanded.groups).length > Object.keys(cloudData.groups).length) {
+
+                  // Auto-generate if cloud is missing classes
+                  if (Object.keys(expanded.groups).length > (Object.keys(cloudData.groups || {}).length)) {
                     skipNextSnapshotRef.current = true;
-                    docRef.set(expanded);
+                    docRef.set(expanded).catch(() => { });
                   }
                 } else {
                   const seed = generateSeedData();
                   skipNextSnapshotRef.current = true;
-                  docRef.set(seed);
+                  docRef.set(seed).catch(() => { });
                   setData(seed);
                 }
                 setIsCloudLoaded(true);
@@ -1250,19 +1261,10 @@
         };
       }, [addToast]);
 
-      // GUARDADO DUAL
+      // LOCAL STORAGE SAVE ONLY (Removed Cloud Sync to prevent race conditions)
       useEffect(() => {
         if (!isCloudLoaded) return;
         localStorage.setItem('akasha_data', JSON.stringify(data));
-        const syncToCloud = async () => {
-          try {
-            if (auth.currentUser) {
-              await db.collection('yoga').doc('main').set(data);
-            }
-          } catch (err) { }
-        };
-        const timer = setTimeout(syncToCloud, 1500);
-        return () => clearTimeout(timer);
       }, [data, isCloudLoaded]);
 
       useEffect(() => {
