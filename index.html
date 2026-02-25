@@ -1138,6 +1138,7 @@
       const [toasts, setToasts] = useState([]);
       const toastIdRef = useRef(0);
       const lockRef = useRef(new Set());
+      const skipNextSnapshotRef = useRef(false);
 
       const [cloudStatus, setCloudStatus] = useState('Conectando...');
 
@@ -1178,17 +1179,24 @@
 
               const docRef = db.collection('yoga').doc('main');
               unsubscribe = docRef.onSnapshot((docSnap) => {
+                // Skip snapshot if we just wrote locally (prevent overwrite)
+                if (skipNextSnapshotRef.current) {
+                  skipNextSnapshotRef.current = false;
+                  setIsCloudLoaded(true);
+                  clearTimeout(cloudTimeout);
+                  return;
+                }
                 if (docSnap.exists) {
                   const cloudData = docSnap.data();
-                  // Auto-generate future groups if needed
                   const expanded = ensureFutureGroups(cloudData);
                   setData(expanded);
-                  // If new groups were added, save back to cloud
                   if (Object.keys(expanded.groups).length > Object.keys(cloudData.groups).length) {
+                    skipNextSnapshotRef.current = true;
                     docRef.set(expanded);
                   }
                 } else {
                   const seed = generateSeedData();
+                  skipNextSnapshotRef.current = true;
                   docRef.set(seed);
                   setData(seed);
                 }
@@ -1296,10 +1304,7 @@
       /* --- Handle Bono Updates --- */
       const handleUpdateBonos = useCallback((phone, newBonos) => {
         setData(prev => {
-          // Update user's bonos
           const updatedUsers = { ...prev.users, [phone]: { ...prev.users[phone], bonos: newBonos } };
-          // Re-apply all bonos to all groups
-          // First, strip all bono slots for this user from all groups
           const strippedGroups = {};
           Object.keys(prev.groups).forEach(gId => {
             const g = prev.groups[gId];
@@ -1310,9 +1315,16 @@
             );
             strippedGroups[gId] = { ...g, slots: cleanedSlots };
           });
-          // Then apply new bonos
           const finalGroups = applyBonosToGroups(updatedUsers, strippedGroups);
-          return { users: updatedUsers, groups: finalGroups };
+          const newData = { users: updatedUsers, groups: finalGroups };
+          // Save DIRECTLY to Firebase (skip debounce to avoid race condition)
+          try {
+            if (auth.currentUser) {
+              skipNextSnapshotRef.current = true;
+              db.collection('yoga').doc('main').set(newData);
+            }
+          } catch (e) { }
+          return newData;
         });
         addToast(`Bonos actualizados (${newBonos.length} clases/semana)`, 'success');
       }, [addToast]);
