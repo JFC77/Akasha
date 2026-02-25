@@ -1303,27 +1303,64 @@
 
       /* --- Handle Bono Updates --- */
       const handleUpdateBonos = useCallback((phone, newBonos) => {
+        console.log('=== handleUpdateBonos START ===');
+        console.log('Phone:', phone, 'New bonos:', JSON.stringify(newBonos));
         setData(prev => {
+          const user = prev.users[phone];
+          console.log('User found:', user?.name, 'Old bonos:', JSON.stringify(user?.bonos));
           const updatedUsers = { ...prev.users, [phone]: { ...prev.users[phone], bonos: newBonos } };
+
+          // Strip existing bono slots for this user
           const strippedGroups = {};
+          let strippedCount = 0;
           Object.keys(prev.groups).forEach(gId => {
             const g = prev.groups[gId];
-            const cleanedSlots = g.slots.map(s =>
-              s.userId === phone && s.status === 'bono'
-                ? { ...s, userId: null, userName: null, status: 'released', originalUserId: null }
-                : s
-            );
+            const cleanedSlots = g.slots.map(s => {
+              if (s.userId === phone && s.status === 'bono') {
+                strippedCount++;
+                return { ...s, userId: null, userName: null, status: 'released', originalUserId: null };
+              }
+              return s;
+            });
             strippedGroups[gId] = { ...g, slots: cleanedSlots };
           });
+          console.log('Stripped', strippedCount, 'existing bono slots');
+
+          // Apply bonos
           const finalGroups = applyBonosToGroups(updatedUsers, strippedGroups);
+
+          // Count how many bono slots were created
+          let bonoCount = 0;
+          Object.values(finalGroups).forEach(g => {
+            g.slots.forEach(s => {
+              if (s.userId === phone && s.status === 'bono') bonoCount++;
+            });
+          });
+          console.log('After applyBonos: user has', bonoCount, 'bono slots across all groups');
+          console.log('Total groups:', Object.keys(finalGroups).length);
+
+          // Sample: show first matching group
+          if (newBonos.length > 0) {
+            const firstBono = newBonos[0];
+            console.log('Looking for groups matching first bono:', JSON.stringify(firstBono));
+            Object.values(finalGroups).forEach(g => {
+              const gDow = dowFromDateStr(g.date);
+              if (g.classId === firstBono.classId && gDow === firstBono.dayOfWeek && g.time === firstBono.time) {
+                const userSlot = g.slots.find(s => s.userId === phone);
+                console.log(`  MATCH: ${g.id} date=${g.date} dow=${gDow} time=${g.time} userSlot=${userSlot ? userSlot.status : 'NONE'}`);
+              }
+            });
+          }
+
           const newData = { users: updatedUsers, groups: finalGroups };
-          // Save DIRECTLY to Firebase (skip debounce to avoid race condition)
           try {
             if (auth.currentUser) {
               skipNextSnapshotRef.current = true;
               db.collection('yoga').doc('main').set(newData);
+              console.log('Saved to Firebase directly');
             }
-          } catch (e) { }
+          } catch (e) { console.error('Firebase save error:', e); }
+          console.log('=== handleUpdateBonos END ===');
           return newData;
         });
         addToast(`Bonos actualizados (${newBonos.length} clases/semana)`, 'success');
