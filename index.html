@@ -220,8 +220,6 @@
       { classId: 'sabado_especial', dayOfWeek: 6, time: '10:00' },
     ];
 
-    const FAKE_STUDENTS = [];
-
     /* ----- helpers ----- */
     function sanitizePhone(raw) { return raw.toString().replace(/[^0-9]/g, '').slice(0, 15); }
     function isValidPhone(p) { return p && p.length >= 9 && p.length <= 15; }
@@ -236,11 +234,51 @@
       return d.toLocaleDateString('es-ES', { weekday: 'long' });
     }
 
+    /* Helper: day-of-week from date string (1=Mon..7=Sun) */
+    function dowFromDateStr(dateStr) {
+      const d = new Date(dateStr + 'T00:00');
+      return d.getDay() === 0 ? 7 : d.getDay();
+    }
+
+    /* --- BONO ENGINE: apply bonos to groups --- */
+    function applyBonosToGroups(users, groups) {
+      const updatedGroups = { ...groups };
+      const bonoUsers = Object.values(users).filter(u => u.bonos && u.bonos.length > 0 && !u.isBlocked);
+
+      bonoUsers.forEach(user => {
+        user.bonos.forEach(bono => {
+          // Find all matching groups
+          Object.keys(updatedGroups).forEach(gId => {
+            const g = updatedGroups[gId];
+            const gDow = dowFromDateStr(g.date);
+            if (g.classId === bono.classId && gDow === bono.dayOfWeek && g.time === bono.time) {
+              // Check if user already has a slot in this group
+              if (g.slots.some(s => s.userId === user.phone)) return;
+              // Find first free slot
+              const freeIdx = g.slots.findIndex(s => s.status === 'released');
+              if (freeIdx === -1) return; // class full
+              const newSlots = [...g.slots];
+              newSlots[freeIdx] = {
+                ...newSlots[freeIdx],
+                userId: user.phone,
+                userName: user.name,
+                status: 'bono',
+                originalUserId: user.phone
+              };
+              updatedGroups[gId] = { ...g, slots: newSlots };
+            }
+          });
+        });
+      });
+      return updatedGroups;
+    }
+
     /* ----- seed generation ----- */
-    function generateSeedData() {
-      const users = {};
-      users[ADMIN_PHONE] = { phone: ADMIN_PHONE, name: 'Administración', role: 'admin', registeredAt: Date.now() };
-      FAKE_STUDENTS.forEach(s => { users[s.phone] = { ...s, role: 'student', registeredAt: Date.now() }; });
+    function generateSeedData(existingUsers) {
+      const users = existingUsers ? { ...existingUsers } : {};
+      if (!users[ADMIN_PHONE]) {
+        users[ADMIN_PHONE] = { phone: ADMIN_PHONE, name: 'Administración', role: 'admin', registeredAt: Date.now() };
+      }
 
       const groups = {};
       const today = new Date();
@@ -252,7 +290,6 @@
         const dow = date.getDay() === 0 ? 7 : date.getDay();
 
         SCHEDULE.filter(s => s.dayOfWeek === dow).forEach(sched => {
-          // Lógica especial para 1er y 3er Sábado
           if (sched.classId === 'sabado_especial') {
             const dayOfMonth = date.getDate();
             const weekNumber = Math.ceil(dayOfMonth / 7);
@@ -263,24 +300,17 @@
           const groupId = `${sched.classId}_${date.toISOString().slice(0, 10)}_${sched.time}`;
 
           const slots = [];
-          const studentsToAssign = FAKE_STUDENTS.slice(0, Math.min(classType.maxCapacity, FAKE_STUDENTS.length));
-          studentsToAssign.forEach((st, i) => {
-            const shouldRelease = i >= studentsToAssign.length - 2 && dayOffset > 0;
-            slots.push({
-              slotIndex: i, userId: st.phone, userName: st.name,
-              status: shouldRelease ? 'released' : 'confirmed',
-              originalUserId: st.phone,
-            });
-          });
-
-          for (let i = slots.length; i < classType.maxCapacity; i++) {
+          for (let i = 0; i < classType.maxCapacity; i++) {
             slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
           }
 
           groups[groupId] = { id: groupId, classId: sched.classId, date: date.toISOString().slice(0, 10), time: sched.time, slots };
         });
       }
-      return { users, groups };
+
+      // Apply bonos after creating empty groups
+      const finalGroups = applyBonosToGroups(users, groups);
+      return { users, groups: finalGroups };
     }
 
     /* =============================================================
@@ -421,18 +451,22 @@
     /* =============================================================
        5. CLASS CARD
        ============================================================= */
-    function ClassCard({ group, classType, currentUser, onRelease, onBook, onCancel }) {
+    function ClassCard({ group, classType, currentUser, onRelease, onBook, onCancel, availableCredits }) {
       const availableSlots = group.slots.filter(s => s.status === 'released').length;
       const totalSlots = group.slots.length;
-      const bookedSlots = group.slots.filter(s => s.status === 'confirmed' || s.status === 'booked').length;
+      const bookedSlots = group.slots.filter(s => s.status !== 'released').length;
 
-      const userSlot = group.slots.find(s => s.userId === currentUser.phone && (s.status === 'confirmed' || s.status === 'booked'));
-      const hasFixedSlot = group.slots.find(s => s.originalUserId === currentUser.phone && s.status === 'confirmed');
-      const hasBookedSlot = group.slots.find(s => s.userId === currentUser.phone && s.status === 'booked');
+      const userBonoSlot = group.slots.find(s => s.userId === currentUser.phone && s.status === 'bono');
+      const userBookedSlot = group.slots.find(s => s.userId === currentUser.phone && s.status === 'booked');
+      const userSlot = userBonoSlot || userBookedSlot;
       const fillPercent = Math.round((bookedSlots / totalSlots) * 100);
 
+      // Can book only if has credits from cancellations
+      const canBook = !userSlot && availableSlots > 0 && availableCredits > 0;
+
       return (
-        <article className="bg-white/70 backdrop-blur-xl rounded-3xl p-5 shadow-[0_4px_24px_rgba(74,103,65,0.06)] border border-sage-100/60 transition-all duration-300 hover:shadow-[0_8px_32px_rgba(74,103,65,0.1)]">
+        <article className={`bg-white/70 backdrop-blur-xl rounded-3xl p-5 shadow-[0_4px_24px_rgba(74,103,65,0.06)] border transition-all duration-300 hover:shadow-[0_8px_32px_rgba(74,103,65,0.1)]
+          ${userBonoSlot ? 'border-sage-300 ring-1 ring-sage-200' : 'border-sage-100/60'}`}>
           {/* Header */}
           <div className="flex items-start justify-between mb-3">
             <div className="flex items-center gap-3">
@@ -442,6 +476,11 @@
               </div>
               <div>
                 <h3 className="font-semibold text-sage-900 text-[15px] leading-tight">{classType.name}</h3>
+                {userBonoSlot && (
+                  <span className="text-[10px] font-bold text-sage-600 bg-sage-100 px-2 py-0.5 rounded-full mt-0.5 inline-block">
+                    ⭐ Clase Fija (Bono)
+                  </span>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-1.5 text-sage-500">
@@ -472,23 +511,28 @@
 
           {/* Actions */}
           <div className="flex gap-2">
-            {hasFixedSlot && (
-              <button onClick={() => onRelease(group.id, hasFixedSlot.slotIndex)}
+            {userBonoSlot && (
+              <button onClick={() => onCancel(group.id, userBonoSlot.slotIndex)}
                 className="flex-1 py-2.5 px-4 rounded-2xl bg-amber-50 hover:bg-amber-100 active:scale-[0.97] text-amber-700 text-sm font-semibold transition-all border border-amber-200/60">
-                No asistiré
+                No asistiré esta semana
               </button>
             )}
-            {hasBookedSlot && (
-              <button onClick={() => onCancel(group.id, hasBookedSlot.slotIndex)}
+            {userBookedSlot && (
+              <button onClick={() => onCancel(group.id, userBookedSlot.slotIndex)}
                 className="flex-1 py-2.5 px-4 rounded-2xl bg-red-50 hover:bg-red-100 active:scale-[0.97] text-red-600 text-sm font-semibold transition-all border border-red-200/60">
                 Cancelar reserva
               </button>
             )}
-            {!userSlot && availableSlots > 0 && (
+            {canBook && (
               <button onClick={() => onBook(group.id)}
                 className="flex-1 py-2.5 px-4 rounded-2xl bg-sage-600 hover:bg-sage-700 active:scale-[0.97] text-white text-sm font-semibold transition-all shadow-sm shadow-sage-600/20">
                 Reservar hueco
               </button>
+            )}
+            {!userSlot && availableSlots > 0 && availableCredits <= 0 && (
+              <div className="flex-1 py-2.5 px-4 rounded-2xl bg-sage-50 text-sage-400 text-sm font-medium text-center">
+                Sin créditos disponibles
+              </div>
             )}
             {!userSlot && availableSlots === 0 && (
               <div className="flex-1 py-2.5 px-4 rounded-2xl bg-sage-50 text-sage-400 text-sm font-medium text-center">
@@ -522,12 +566,15 @@
       );
     }
 
-    function AdminView({ users, groups, onLogout, addToast, onAddGroup, onDeleteGroup, onUpdateSlot, onUpdateCapacity, onAddStudent, onUpdateUser, onResetData }) {
+    function AdminView({ users, groups, onLogout, addToast, onAddGroup, onDeleteGroup, onUpdateSlot, onUpdateCapacity, onAddStudent, onUpdateUser, onUpdateBonos, onResetData }) {
       const [search, setSearch] = useState('');
       const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
       const [showAddModal, setShowAddModal] = useState(false);
       const [showUserModal, setShowUserModal] = useState(false);
       const [editingGroupId, setEditingGroupId] = useState(null);
+      const [bonoEditingPhone, setBonoEditingPhone] = useState(null);
+
+      const dayNames = { 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb', 7: 'Dom' };
 
       const dayGroups = Object.values(groups)
         .filter(g => g.date === selectedDate.toISOString().slice(0, 10))
@@ -727,19 +774,52 @@
                               <span className="text-[10px] text-sage-400">{u.phone}</span>
                             </div>
                             <div className="flex items-center gap-2">
+                              <button onClick={() => setBonoEditingPhone(bonoEditingPhone === u.phone ? null : u.phone)}
+                                className={`p-2 rounded-xl transition-colors ${bonoEditingPhone === u.phone ? 'bg-sage-600 text-white' : 'bg-sage-50 text-sage-600 hover:bg-sage-100'}`} title="Gestionar Bonos">
+                                <LucideIcon name="Ticket" className="w-4 h-4" />
+                              </button>
                               <button onClick={() => onUpdateUser(u.phone, { isBlocked: !u.isBlocked })}
                                 className={`p-2 rounded-xl transition-colors ${u.isBlocked ? 'bg-red-500 text-white' : 'bg-sage-50 text-sage-400 hover:text-red-500'}`} title="Bloquear/Desbloquear">
                                 <LucideIcon name="Shield" className="w-4 h-4" />
                               </button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3 bg-sage-50/50 p-2 rounded-xl">
-                            <span className="text-[10px] font-bold text-sage-500 uppercase">Cupo/Mes:</span>
-                            <input type="number" defaultValue={u.quota || 8} min="1" max="99"
-                              className="w-12 bg-white border-none text-xs font-bold text-sage-700 rounded-lg p-1 text-center"
-                              onChange={(e) => onUpdateUser(u.phone, { quota: parseInt(e.target.value) })} />
-                            <span className="text-[10px] text-sage-400 italic">clases</span>
+                          {/* Bono summary */}
+                          <div className="flex items-center gap-2 bg-sage-50/50 p-2 rounded-xl mb-1">
+                            <LucideIcon name="Ticket" className="w-3.5 h-3.5 text-sage-500" />
+                            <span className="text-[10px] font-bold text-sage-500">
+                              {(u.bonos || []).length > 0 ? `${(u.bonos || []).length} bono${(u.bonos || []).length !== 1 ? 's' : ''} activos` : 'Sin bonos'}
+                            </span>
                           </div>
+
+                          {/* Bono editing panel */}
+                          {bonoEditingPhone === u.phone && (
+                            <div className="mt-2 p-3 bg-sage-50 rounded-xl space-y-2 border border-sage-100 animate-slide-in">
+                              <p className="text-[10px] font-bold text-sage-600 uppercase mb-1">Asignar clases fijas semanales:</p>
+                              {SCHEDULE.map(sched => {
+                                const ct = CLASS_TYPES.find(c => c.id === sched.classId);
+                                const userBonos = u.bonos || [];
+                                const isActive = userBonos.some(b => b.classId === sched.classId && b.dayOfWeek === sched.dayOfWeek && b.time === sched.time);
+                                return (
+                                  <label key={`${sched.classId}_${sched.dayOfWeek}_${sched.time}`}
+                                    className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all ${isActive ? 'bg-sage-200/60 ring-1 ring-sage-300' : 'bg-white hover:bg-sage-100/50'}`}>
+                                    <input type="checkbox" checked={isActive}
+                                      onChange={() => {
+                                        const newBonos = isActive
+                                          ? userBonos.filter(b => !(b.classId === sched.classId && b.dayOfWeek === sched.dayOfWeek && b.time === sched.time))
+                                          : [...userBonos, { classId: sched.classId, dayOfWeek: sched.dayOfWeek, time: sched.time }];
+                                        onUpdateBonos(u.phone, newBonos);
+                                      }}
+                                      className="accent-sage-600 w-4 h-4" />
+                                    <div className="flex-1 flex items-center justify-between">
+                                      <span className="text-xs font-medium text-sage-700">{ct?.name || sched.classId}</span>
+                                      <span className="text-[10px] text-sage-400">{dayNames[sched.dayOfWeek]} {sched.time}</span>
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       ))}
                   </div>
@@ -799,7 +879,11 @@
                         ) : (
                           <>
                             <div className="flex flex-col">
-                              <span className="text-sm font-bold text-sage-800">{sl.userName}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm font-bold text-sage-800">{sl.userName}</span>
+                                {sl.status === 'bono' && <span className="text-[8px] bg-sage-100 text-sage-600 px-1.5 py-0.5 rounded-full font-bold">BONO</span>}
+                                {sl.status === 'booked' && <span className="text-[8px] bg-blue-50 text-blue-500 px-1.5 py-0.5 rounded-full font-bold">EXTRA</span>}
+                              </div>
                               <span className="text-[10px] text-sage-400">{sl.userId}</span>
                             </div>
                             <button onClick={() => onUpdateSlot(editingGroup.id, idx, null)}
@@ -847,9 +931,42 @@
         .filter(g => g.date === selectedDate.toISOString().slice(0, 10))
         .sort((a, b) => a.time.localeCompare(b.time));
 
+      // All my active slots (bono + booked)
       const myBookings = Object.values(groups)
-        .filter(g => g.slots.some(s => s.userId === currentUser.phone && (s.status === 'confirmed' || s.status === 'booked')))
+        .filter(g => g.slots.some(s => s.userId === currentUser.phone && (s.status === 'bono' || s.status === 'booked')))
         .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+
+      // --- CREDIT CALCULATION ---
+      const currentMonth = selectedDate.toISOString().slice(0, 7);
+      const allGroups = Object.values(groups);
+
+      // Count bono classes this month (active)
+      const bonoClassesThisMonth = allGroups.filter(g =>
+        g.date.startsWith(currentMonth) &&
+        g.slots.some(s => s.userId === currentUser.phone && s.status === 'bono')
+      ).length;
+
+      // Count how many bonos the user has (permanent weekly assignments)
+      const userBonos = currentUser.bonos || [];
+
+      // Count how many bono classes were CANCELLED this month (bonos that should exist but student cancelled)
+      // We know a bono was cancelled if: the group matches a bono pattern, but user is NOT in it
+      let expectedBonoClasses = 0;
+      userBonos.forEach(bono => {
+        expectedBonoClasses += allGroups.filter(g => {
+          const gDow = dowFromDateStr(g.date);
+          return g.date.startsWith(currentMonth) && g.classId === bono.classId && gDow === bono.dayOfWeek && g.time === bono.time;
+        }).length;
+      });
+      const cancelledBonos = expectedBonoClasses - bonoClassesThisMonth;
+
+      // Count extra bookings (manually booked, not bono)
+      const extraBookings = allGroups.filter(g =>
+        g.date.startsWith(currentMonth) &&
+        g.slots.some(s => s.userId === currentUser.phone && s.status === 'booked')
+      ).length;
+
+      const availableCredits = cancelledBonos - extraBookings;
 
       return (
         <div className="min-h-dvh bg-gradient-to-br from-cream-50 via-sage-50 to-cream-100">
@@ -864,6 +981,20 @@
                 <LucideIcon name="LogOut" className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Credit info bar */}
+            {userBonos.length > 0 && (
+              <div className="max-w-lg mx-auto mb-2 px-3 py-2 bg-sage-50 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <LucideIcon name="Ticket" className="w-4 h-4 text-sage-600" />
+                  <span className="text-xs font-medium text-sage-600">Bono: {userBonos.length} clases/semana</span>
+                </div>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${availableCredits > 0 ? 'bg-blue-50 text-blue-600' : 'bg-sage-100 text-sage-400'}`}>
+                  {availableCredits > 0 ? `${availableCredits} crédito${availableCredits !== 1 ? 's' : ''}` : 'Sin créditos extra'}
+                </span>
+              </div>
+            )}
+
             <nav className="flex gap-1 max-w-lg mx-auto bg-sage-100/50 rounded-2xl p-1" aria-label="Navegación principal">
               <button onClick={() => setTab('clases')}
                 className={`flex-1 py-2 rounded-xl text-sm font-medium transition-all duration-200
@@ -899,7 +1030,8 @@
                     const ct = getCT(g);
                     return (
                       <ClassCard key={g.id} group={g} classType={ct} currentUser={currentUser}
-                        onRelease={onRelease} onBook={onBook} onCancel={onCancel} />
+                        onRelease={onRelease} onBook={onBook} onCancel={onCancel}
+                        availableCredits={availableCredits} />
                     );
                   })}
                 </div>
@@ -918,9 +1050,11 @@
                 <div className="space-y-3">
                   {myBookings.map(g => {
                     const ct = getCT(g);
-                    const slot = g.slots.find(s => s.userId === currentUser.phone && (s.status === 'confirmed' || s.status === 'booked'));
+                    const slot = g.slots.find(s => s.userId === currentUser.phone && (s.status === 'bono' || s.status === 'booked'));
+                    const isBono = slot?.status === 'bono';
                     return (
-                      <div key={g.id} className="bg-white/70 backdrop-blur-xl rounded-3xl p-4 border border-sage-100/60 shadow-sm">
+                      <div key={g.id} className={`bg-white/70 backdrop-blur-xl rounded-3xl p-4 border shadow-sm
+                        ${isBono ? 'border-sage-200' : 'border-blue-200'}`}>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className={`w-10 h-10 rounded-2xl flex items-center justify-center
@@ -935,8 +1069,8 @@
                             </div>
                           </div>
                           <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider
-                            ${slot?.status === 'confirmed' ? 'bg-sage-50 text-sage-600' : 'bg-blue-50 text-blue-600'}`}>
-                            {slot?.status === 'confirmed' ? 'Fija' : 'Reservada'}
+                            ${isBono ? 'bg-sage-50 text-sage-600' : 'bg-blue-50 text-blue-600'}`}>
+                            {isBono ? '⭐ Fija' : 'Reservada'}
                           </span>
                         </div>
                       </div>
@@ -1082,7 +1216,7 @@
             setTimeout(() => addToast('Este teléfono ya está registrado', 'info'), 10);
             return prev;
           }
-          const newUser = { phone: clean, name, role: 'student', registeredAt: Date.now(), quota: 8, isBlocked: false };
+          const newUser = { phone: clean, name, role: 'student', registeredAt: Date.now(), bonos: [], isBlocked: false };
           setTimeout(() => addToast(`Alumno ${name} registrado correctamente`, 'success'), 10);
           return {
             ...prev,
@@ -1103,6 +1237,30 @@
           }
         }));
       }, []);
+
+      /* --- Handle Bono Updates --- */
+      const handleUpdateBonos = useCallback((phone, newBonos) => {
+        setData(prev => {
+          // Update user's bonos
+          const updatedUsers = { ...prev.users, [phone]: { ...prev.users[phone], bonos: newBonos } };
+          // Re-apply all bonos to all groups
+          // First, strip all bono slots for this user from all groups
+          const strippedGroups = {};
+          Object.keys(prev.groups).forEach(gId => {
+            const g = prev.groups[gId];
+            const cleanedSlots = g.slots.map(s =>
+              s.userId === phone && s.status === 'bono'
+                ? { ...s, userId: null, userName: null, status: 'released', originalUserId: null }
+                : s
+            );
+            strippedGroups[gId] = { ...g, slots: cleanedSlots };
+          });
+          // Then apply new bonos
+          const finalGroups = applyBonosToGroups(updatedUsers, strippedGroups);
+          return { users: updatedUsers, groups: finalGroups };
+        });
+        addToast(`Bonos actualizados (${newBonos.length} clases/semana)`, 'success');
+      }, [addToast]);
 
       /* --- Admin Advanced Actions --- */
       const handleAddGroup = useCallback((classId, date, time, capacity, customName) => {
@@ -1209,17 +1367,38 @@
           const group = prev.groups[groupId];
           if (!group) { lockRef.current.delete(lockKey); return prev; }
 
-          // VERIFICAR CUPO
+          // CREDIT-BASED VERIFICATION
           const userObj = prev.users[currentUser.phone];
-          const userQuota = userObj?.quota || 8;
-          const currentMonth = group.date.slice(0, 7); // YYYY-MM
-          const monthlyBookings = Object.values(prev.groups).filter(g =>
+          const userBonos = userObj?.bonos || [];
+          const currentMonth = group.date.slice(0, 7);
+          const allGroups = Object.values(prev.groups);
+
+          // Count active bono classes this month
+          const bonoClassesThisMonth = allGroups.filter(g =>
             g.date.startsWith(currentMonth) &&
-            g.slots.some(s => s.userId === currentUser.phone && (s.status === 'booked' || s.status === 'confirmed'))
+            g.slots.some(s => s.userId === currentUser.phone && s.status === 'bono')
           ).length;
 
-          if (monthlyBookings >= userQuota) {
-            setTimeout(() => addToast(`Has alcanzado tu cupo de ${userQuota} clases este mes`, 'error'), 10);
+          // Count expected bono classes this month
+          let expectedBonoClasses = 0;
+          userBonos.forEach(bono => {
+            expectedBonoClasses += allGroups.filter(g => {
+              const gDow = dowFromDateStr(g.date);
+              return g.date.startsWith(currentMonth) && g.classId === bono.classId && gDow === bono.dayOfWeek && g.time === bono.time;
+            }).length;
+          });
+          const cancelledBonos = expectedBonoClasses - bonoClassesThisMonth;
+
+          // Count extra bookings already made
+          const extraBookings = allGroups.filter(g =>
+            g.date.startsWith(currentMonth) &&
+            g.slots.some(s => s.userId === currentUser.phone && s.status === 'booked')
+          ).length;
+
+          const availableCredits = cancelledBonos - extraBookings;
+
+          if (availableCredits <= 0) {
+            setTimeout(() => addToast('No tienes créditos disponibles. Cancela una clase fija para poder reservar otra.', 'error'), 10);
             lockRef.current.delete(lockKey); return prev;
           }
 
@@ -1238,8 +1417,6 @@
             i === slotIdx ? { ...s, status: 'booked', userId: currentUser.phone, userName: currentUser.name } : s
           );
 
-          // Al reservar siempre queda al final de los ocupados, así que no suele generar huecos, 
-          // pero compactamos por seguridad
           const occupied = newSlots.filter(s => s.status !== 'released');
           const capacity = group.slots.length;
           const compacted = Array.from({ length: capacity }, (_, i) => {
@@ -1275,10 +1452,10 @@
       }, [addToast]);
 
       const handleResetData = useCallback(() => {
-        const seed = generateSeedData();
+        const seed = generateSeedData(data.users);
         setData(seed);
-        addToast('Base de datos reiniciada', 'info');
-      }, [addToast]);
+        addToast('Base de datos reiniciada con bonos aplicados', 'info');
+      }, [addToast, data.users]);
 
       const isAdmin = currentUser?.role === 'admin';
 
@@ -1304,11 +1481,12 @@
               onUpdateCapacity={handleUpdateCapacity}
               onAddStudent={handleAddStudent}
               onUpdateUser={handleUpdateUser}
+              onUpdateBonos={handleUpdateBonos}
               onResetData={handleResetData}
             />
           )}
           {currentUser && !isAdmin && (
-            <StudentView currentUser={currentUser} groups={data.groups}
+            <StudentView currentUser={data.users[currentUser.phone] || currentUser} groups={data.groups}
               onRelease={handleRelease} onBook={handleBook} onCancel={handleCancel} onLogout={handleLogout} />
           )}
         </>
