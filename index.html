@@ -224,6 +224,14 @@
     function sanitizePhone(raw) { return raw.toString().replace(/[^0-9]/g, '').slice(0, 15); }
     function isValidPhone(p) { return p && p.length >= 9 && p.length <= 15; }
 
+    /* Format date to YYYY-MM-DD using LOCAL timezone (never UTC!) */
+    function localDateStr(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
     function formatDate(d) {
       return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
     }
@@ -236,7 +244,7 @@
 
     /* Helper: day-of-week from date string (1=Mon..7=Sun) */
     function dowFromDateStr(dateStr) {
-      const d = new Date(dateStr + 'T00:00');
+      const d = new Date(dateStr + 'T12:00');
       return d.getDay() === 0 ? 7 : d.getDay();
     }
 
@@ -324,14 +332,14 @@
           }
 
           const classType = CLASS_TYPES.find(c => c.id === sched.classId);
-          const groupId = `${sched.classId}_${date.toISOString().slice(0, 10)}_${sched.time}`;
+          const groupId = `${sched.classId}_${localDateStr(date)}_${sched.time}`;
 
           const slots = [];
           for (let i = 0; i < classType.maxCapacity; i++) {
             slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
           }
 
-          groups[groupId] = { id: groupId, classId: sched.classId, date: date.toISOString().slice(0, 10), time: sched.time, slots };
+          groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots };
         });
       }
 
@@ -344,9 +352,25 @@
     function ensureFutureGroups(existingData) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      let newGroupsAdded = 0;
+      let changed = false;
       const groups = { ...existingData.groups };
 
+      // CLEANUP: remove groups with wrong day-of-week (from timezone bug)
+      Object.keys(groups).forEach(gId => {
+        const g = groups[gId];
+        // Only clean schedule-generated groups (not custom events)
+        const schedEntry = SCHEDULE.find(s => s.classId === g.classId && s.time === g.time);
+        if (schedEntry) {
+          const gDow = dowFromDateStr(g.date);
+          if (gDow !== schedEntry.dayOfWeek) {
+            // This group was created on the wrong day — remove it
+            delete groups[gId];
+            changed = true;
+          }
+        }
+      });
+
+      // Generate missing future groups
       for (let dayOffset = 0; dayOffset < DAYS_AHEAD; dayOffset++) {
         const date = new Date(today);
         date.setDate(today.getDate() + dayOffset);
@@ -359,23 +383,22 @@
             if (weekNumber !== 1 && weekNumber !== 3) return;
           }
 
-          const groupId = `${sched.classId}_${date.toISOString().slice(0, 10)}_${sched.time}`;
-          // Only create if it doesn't exist yet
+          const groupId = `${sched.classId}_${localDateStr(date)}_${sched.time}`;
           if (!groups[groupId]) {
             const classType = CLASS_TYPES.find(c => c.id === sched.classId);
             const slots = [];
             for (let i = 0; i < classType.maxCapacity; i++) {
               slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
             }
-            groups[groupId] = { id: groupId, classId: sched.classId, date: date.toISOString().slice(0, 10), time: sched.time, slots };
-            newGroupsAdded++;
+            groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots };
+            changed = true;
           }
         });
       }
 
-      if (newGroupsAdded === 0) return existingData; // nothing to change
+      if (!changed) return existingData;
 
-      // Apply bonos to newly created groups
+      // Apply bonos to all groups (new and existing)
       const finalGroups = applyBonosToGroups(existingData.users, groups);
       return { ...existingData, groups: finalGroups };
     }
@@ -496,7 +519,7 @@
               const isSelected = isSameDay(d, selectedDate);
               const isToday = isSameDay(d, today);
               return (
-                <button key={d.toISOString()} onClick={() => onSelect(d)}
+                <button key={localDateStr(d)} onClick={() => onSelect(d)}
                   className={`snap-center shrink-0 flex flex-col items-center w-14 py-2.5 rounded-2xl transition-all duration-200
                     ${isSelected ? 'bg-sage-600 text-white shadow-md shadow-sage-600/30 scale-105'
                       : isToday ? 'bg-sage-100 text-sage-700'
@@ -644,7 +667,7 @@
       const dayNames = { 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb', 7: 'Dom' };
 
       const dayGroups = Object.values(groups)
-        .filter(g => g.date === selectedDate.toISOString().slice(0, 10))
+        .filter(g => g.date === localDateStr(selectedDate))
         .sort((a, b) => a.time.localeCompare(b.time));
 
       const getCT = (g) => CLASS_TYPES.find(c => c.id === g.classId) || { name: g.customName || 'Evento', icon: 'Sparkles', color: 'sage', description: 'Evento especial programado' };
@@ -756,7 +779,7 @@
                 const formData = new FormData(e.target);
                 onAddGroup(
                   formData.get('classId'),
-                  selectedDate.toISOString().slice(0, 10),
+                  localDateStr(selectedDate),
                   formData.get('time'),
                   parseInt(formData.get('capacity')),
                   formData.get('customName')
@@ -995,7 +1018,7 @@
       const getCT = (g) => CLASS_TYPES.find(c => c.id === g.classId) || { name: g.customName || 'Evento', icon: 'Sparkles', color: 'sage', description: 'Clase especial programada por la escuela.' };
 
       const dayGroups = Object.values(groups)
-        .filter(g => g.date === selectedDate.toISOString().slice(0, 10))
+        .filter(g => g.date === localDateStr(selectedDate))
         .sort((a, b) => a.time.localeCompare(b.time));
 
       // All my active slots (bono + booked)
@@ -1004,7 +1027,7 @@
         .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 
       // --- CREDIT CALCULATION ---
-      const currentMonth = selectedDate.toISOString().slice(0, 7);
+      const currentMonth = localDateStr(selectedDate).slice(0, 7);
       const allGroups = Object.values(groups);
 
       // Count bono classes this month (active)
