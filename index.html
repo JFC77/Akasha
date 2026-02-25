@@ -187,12 +187,12 @@
     const ADMIN_PHONE = '699999999';
 
     const CLASS_TYPES = [
-      { id: 'hatha_flow', name: 'Hatha Flow', icon: 'Leaf', color: 'sage', duration: 75, maxCapacity: 12, description: 'Clase fluida que combina respiración y movimiento.' },
-      { id: 'mov_funcional', name: 'Mov. Funcional', icon: 'Activity', color: 'sage', duration: 60, maxCapacity: 10, description: 'Movimiento funcional adaptado para adultos mayores.' },
-      { id: 'vinyasa_alta', name: 'Vinyasa (I. Alta)', icon: 'Wind', color: 'sage', duration: 75, maxCapacity: 12, description: 'Secuencias dinámicas y exigentes de Vinyasa.' },
-      { id: 'vinyasa_media', name: 'Vinyasa (I. Media)', icon: 'Cloud', color: 'sage', duration: 75, maxCapacity: 12, description: 'Vinyasa a ritmo moderado y equilibrado.' },
-      { id: 'hatha_suave', name: 'Hatha Suave', icon: 'Thermometer', color: 'sage', duration: 60, maxCapacity: 12, description: 'Clase pausada ideal para la movilidad.' },
-      { id: 'yoga_restaurativo', name: 'Yoga Restaurativo', icon: 'Moon', color: 'sage', duration: 90, maxCapacity: 10, description: 'Relajación profunda con soportes y calma.' },
+      { id: 'hatha_flow', name: 'Hatha Flow', icon: 'Leaf', color: 'sage', duration: 75, maxCapacity: 13, description: 'Clase fluida que combina respiración y movimiento.' },
+      { id: 'mov_funcional', name: 'Mov. Funcional', icon: 'Activity', color: 'sage', duration: 60, maxCapacity: 13, description: 'Movimiento funcional adaptado para adultos mayores.' },
+      { id: 'vinyasa_alta', name: 'Vinyasa (I. Alta)', icon: 'Wind', color: 'sage', duration: 75, maxCapacity: 13, description: 'Secuencias dinámicas y exigentes de Vinyasa.' },
+      { id: 'vinyasa_media', name: 'Vinyasa (I. Media)', icon: 'Cloud', color: 'sage', duration: 75, maxCapacity: 13, description: 'Vinyasa a ritmo moderado y equilibrado.' },
+      { id: 'hatha_suave', name: 'Hatha Suave', icon: 'Thermometer', color: 'sage', duration: 60, maxCapacity: 13, description: 'Clase pausada ideal para la movilidad.' },
+      { id: 'yoga_restaurativo', name: 'Yoga Restaurativo', icon: 'Moon', color: 'sage', duration: 90, maxCapacity: 13, description: 'Relajación profunda con soportes y calma.' },
       { id: 'sabado_especial', name: '*Clase completa*', icon: 'Sparkles', color: 'terracotta', duration: 150, maxCapacity: 15, description: 'Filosofía, pranayama, asanas y meditación.' },
     ];
 
@@ -322,7 +322,7 @@
           const groupId = `${sched.classId}_${localDateStr(date)}_${sched.time}`;
 
           const slots = [];
-          const cap = sched.capacity || classType?.maxCapacity || 12;
+          const cap = sched.capacity || classType?.maxCapacity || 13;
           for (let i = 0; i < cap; i++) {
             slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
           }
@@ -372,15 +372,26 @@
           }
 
           const groupId = `${sched.classId}_${localDateStr(date)}_${sched.time}`;
+          const classType = CLASS_TYPES.find(c => c.id === sched.classId);
+          const targetCap = sched.capacity || classType?.maxCapacity || 13;
+
           if (!groups[groupId]) {
-            const classType = CLASS_TYPES.find(c => c.id === sched.classId);
             const slots = [];
-            const cap = sched.capacity || classType?.maxCapacity || 12;
-            for (let i = 0; i < cap; i++) {
+            for (let i = 0; i < targetCap; i++) {
               slots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
             }
             groups[groupId] = { id: groupId, classId: sched.classId, date: localDateStr(date), time: sched.time, slots, customName: sched.customName, releasedBonos: [] };
             changed = true;
+          } else {
+            // PATCH: If group exists but has less capacity than standard, upgrade it
+            if (groups[groupId].slots.length < targetCap) {
+              const currentSlots = [...groups[groupId].slots];
+              for (let i = currentSlots.length; i < targetCap; i++) {
+                currentSlots.push({ slotIndex: i, userId: null, userName: null, status: 'released', originalUserId: null });
+              }
+              groups[groupId] = { ...groups[groupId], slots: currentSlots };
+              changed = true;
+            }
           }
         });
       }
@@ -817,7 +828,7 @@
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-sage-500 uppercase mb-2">Aforo Máx.</label>
-                    <input name="capacity" type="number" defaultValue="12" min="1" max="30" className="w-full p-3 rounded-2xl bg-sage-50 border-none text-sm font-medium" />
+                    <input name="capacity" type="number" defaultValue="13" min="1" max="30" className="w-full p-3 rounded-2xl bg-sage-50 border-none text-sm font-medium" />
                   </div>
                 </div>
                 <div className="bg-sage-50 p-3 rounded-2xl">
@@ -1256,8 +1267,12 @@
                   const expanded = ensureFutureGroups(cloudData);
                   setData(expanded);
 
-                  // Auto-generate if cloud is missing classes
-                  if (Object.keys(expanded.groups).length > (Object.keys(cloudData.groups || {}).length)) {
+                  // Auto-generate if cloud is missing classes OR if capacities were patched
+                  const hasMoreGroups = Object.keys(expanded.groups).length > (Object.keys(cloudData.groups || {}).length);
+                  const cloudDataStr = JSON.stringify(cloudData);
+                  const expandedStr = JSON.stringify(expanded);
+
+                  if (hasMoreGroups || (cloudDataStr !== expandedStr)) {
                     skipNextSnapshotRef.current = true;
                     docRef.set(expanded).catch(() => { });
                   }
