@@ -348,14 +348,15 @@
       // CLEANUP: remove groups with wrong day-of-week (from timezone bug)
       Object.keys(groups).forEach(gId => {
         const g = groups[gId];
-        const schedEntry = currentSchedule.find(s => s.classId === g.classId && s.time === g.time);
-        if (schedEntry) {
-          const gDow = dowFromDateStr(g.date);
-          if (gDow !== schedEntry.dayOfWeek) {
-            delete groups[gId];
-            changed = true;
-          }
-        }
+        const gDow = dowFromDateStr(g.date);
+        // Only cleanup if it was definitely supposed to be a scheduled group 
+        // match classId, time AND day-of-week to find the CORRECT entry
+        const schedEntry = currentSchedule.find(s => s.classId === g.classId && s.time === g.time && s.dayOfWeek === gDow);
+
+        // If it's a scheduled class but doesn't match its own day anymore (e.g. schedule changed or timezone bug)
+        // For now, let's be conservative: only delete if something is very wrong.
+        // Actually, if we find NO entry for this class/time/dow, but it looks like a auto-generated ID, we might delete.
+        // But to avoid the "freeze/delete" loop, let's just disable this aggressive cleanup for a moment.
       });
 
       for (let dayOffset = 0; dayOffset < DAYS_AHEAD; dayOffset++) {
@@ -1341,17 +1342,15 @@
             return prev;
           }
           const newUser = { phone: clean, name, role: 'student', registeredAt: Date.now(), bonos: [], isBlocked: false };
-          const newData = {
-            ...prev,
-            users: {
-              ...prev.users,
-              [clean]: newUser
-            }
-          };
+          const newData = { ...prev, users: { ...prev.users, [clean]: newUser } };
+
+          // SIDE EFFECT OUTSIDE (via ref or immediate outside setData is better, 
+          // but for this specific architecture, we use a slightly safer pattern)
           if (auth.currentUser) {
             skipNextSnapshotRef.current = true;
-            db.collection('yoga').doc('main').set(newData).catch(() => { });
+            db.collection('yoga').doc('main').set(newData).catch((e) => console.error("Sync error", e));
           }
+
           setTimeout(() => addToast(`Alumno ${name} registrado correctamente`, 'success'), 10);
           return newData;
         });
@@ -1359,16 +1358,10 @@
 
       const handleUpdateUser = useCallback((phone, updates) => {
         setData(prev => {
-          const newData = {
-            ...prev,
-            users: {
-              ...prev.users,
-              [phone]: { ...prev.users[phone], ...updates }
-            }
-          };
+          const newData = { ...prev, users: { ...prev.users, [phone]: { ...prev.users[phone], ...updates } } };
           if (auth.currentUser) {
             skipNextSnapshotRef.current = true;
-            db.collection('yoga').doc('main').set(newData).catch(() => { });
+            db.collection('yoga').doc('main').set(newData).catch((e) => console.error("Sync error", e));
           }
           return newData;
         });
@@ -1431,7 +1424,7 @@
           const newData = ensureFutureGroups(result);
           if (auth.currentUser) {
             skipNextSnapshotRef.current = true;
-            db.collection('yoga').doc('main').set(newData).catch(() => { });
+            db.collection('yoga').doc('main').set(newData).catch((e) => console.error("Sync error", e));
           }
           return newData;
         });
